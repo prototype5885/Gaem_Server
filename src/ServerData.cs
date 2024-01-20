@@ -1,5 +1,5 @@
-﻿namespace TCP_Gaem_Server.src;
-class ServerData
+﻿
+public class ServerData
 {
     // id, posX, posY, posZ, name
     Dictionary<int, (float, float, float, string)> currentPlayers = new Dictionary<int, (float, float, float, string)>();

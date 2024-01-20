@@ -7,76 +7,82 @@ using System.Net.Sockets;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace TCP_Gaem_Server.src;
-class Server
+public class Server
 {
-    TcpListener tcpListener;
-    TcpClient[] clients = new TcpClient[100];
-
-
-    Thread listenerThread;
-    Timer broadcastTimer;
-    //object lockObject = new object();
-
-    int messageNumber = 0;
-
-    int port = 1942;
-
-    ServerData serverData = new ServerData();
-
-
-    public Server()
+    private TcpListener tcpListener;
+    private TcpClient[] clients;
+    private ServerData serverData;
+    
+    private int messageNumber = 0;
+    
+    public Server(int port)
     {
-        tcpListener = new TcpListener(IPAddress.Any, port);
-        listenerThread = new Thread(new ThreadStart(ListenForClients));
-        listenerThread.Start();
+        try
+        {
+            // Starts server
+            tcpListener = new TcpListener(IPAddress.Any, port);
+            
+            // Starts stuff that handles the clients
+            clients = new TcpClient[2];
+            
+            // The thing that manages data about clients
+            serverData = new ServerData();
+            
+            // Opens the thing that accepts new clients
+            Thread listenerThread = new Thread(new ThreadStart(ListenForClients));
+            listenerThread.Start();
 
-        // Timer for broadcasting messages to all clients every second
-        broadcastTimer = new Timer(Tick, null, 0, 50);
+            // Starts timer that broadcasts messages to all clients every given time
+            Timer broadcastTimer = new Timer(state => Tick(), null, 0, 50);
+
+            Console.Write("Server Started");
+        }
+        catch (Exception ex)
+        {
+            Console.Write("Server failed to start with exception: " + ex);
+        }
     }
 
-    void ListenForClients()
+    private void ListenForClients()
     {
+        // TcpListener tcpListener = (TcpListener)tcpListenerObj;
         tcpListener.Start();
-
         while (true)
         {
             try
             {
-                // Blocks until a client has connected to the server
+                // Blocks/waits until a client has connected to the server
                 TcpClient client = tcpListener.AcceptTcpClient();
-
+                
+                // Gets the IP address of the client
+                string clientIpAddress = ((IPEndPoint)client.Client.RemoteEndPoint).Address.ToString();
+                
+                // Prints info about connected client
+                Console.WriteLine($"Client connecting from {clientIpAddress}");
 
                 // Find an available slot for the client
-                int index = FindClientSlot();
+                int index = FindSlotForClient();
 
-                // Assings to data
-                serverData.AddConnectedPlayer(index, "wtf");
-
-                // Prints info about connected client
-                Console.WriteLine($"Client index {index} connected from {((IPEndPoint)client.Client.RemoteEndPoint).Address}");
-
+                // Assigns slot for the client
                 if (index != -1)
                 {
-                    //lock (lockObject)
-                    {
-                        clients[index] = client;
-                    }
+                    // Adds to slot if there is free one available
+                    clients[index] = client;
+                    Console.WriteLine($"Assigned index {index} for {clientIpAddress}");
 
-                    // Create a thread to handle communication with the connected client
-                    Thread clientThread = new Thread(new ParameterizedThreadStart(HandleClientComm));
-                    clientThread.Start(index);
+                    // Assings client to data
+                    serverData.AddConnectedPlayer(index, "wtf");
                 }
                 else
                 {
                     // Reject the connection if all slots are occupied
-                    Console.WriteLine("Connection rejected: Maximum number of clients reached.");
+                    Console.WriteLine($"Connection rejected for {clientIpAddress}: Maximum number of clients reached. ");
                     client.Close();
                 }
             }
             catch (SocketException ex)
             {
-                // Handle socket exceptions (e.g., client disconnected)
+                // Handle socket exceptions
                 Console.WriteLine($"SocketException: {ex.Message}");
             }
             catch (Exception ex)
@@ -84,42 +90,10 @@ class Server
                 // Handle other exceptions
                 Console.WriteLine($"Exception: {ex.Message}");
             }
-
         }
     }
-
-    void HandleClientComm(object clientIndex)
+    private void Tick()
     {
-        int index = (int)clientIndex;
-        TcpClient tcpClient = clients[index];
-
-        try
-        {
-            while (true)
-            {
-                //NetworkStream clientStream = tcpClient.GetStream();
-
-
-
-                Thread.Sleep(100);
-            }
-        }
-        catch (Exception ex)
-        {
-            // Handle exceptions that may occur when interacting with the client
-            Console.WriteLine($"Client {index} disconnected. Exception: {ex.Message}");
-            //lock (lockObject)
-            {
-                ClientDisconnected(index);
-                Console.WriteLine("deleted");
-            }
-        }
-
-    }
-
-    void Tick(object state)
-    {
-        //lock (lockObject)
         {
             //Console.Clear();
             foreach (TcpClient client in clients)
@@ -153,13 +127,13 @@ class Server
                         //Console.WriteLine($"Received message: {receivedMessage}");
 
 
-                        //Send a message to each connected client at the exact same time every second
+                        // Send a message to each connected clients
                         byte[] message = Encoding.ASCII.GetBytes(messageNumber.ToString());
                         networkStream.Write(message, 0, message.Length);
                     }
                     catch (Exception ex)
                     {
-                        // Handle exceptions that may occur when sending messages
+                        // Handle exceptions that may occur
                         Console.WriteLine($"Error sending message to a client. Exception: {ex.Message}");
                         int index = Array.IndexOf(clients, client);
                         ClientDisconnected(index);
@@ -170,9 +144,8 @@ class Server
         messageNumber += 1;
     }
 
-    int FindClientSlot()
+    private int FindSlotForClient()
     {
-        //lock (lockObject)
         {
             for (int i = 0; i < clients.Length; i++)
             {
@@ -185,7 +158,7 @@ class Server
         return -1; // No available slot
     }
 
-    void ClientDisconnected(int index)
+    private void ClientDisconnected(int index)
     {
         clients[index] = null;
         serverData.DeleteDisconnectedPlayer(index);
