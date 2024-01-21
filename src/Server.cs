@@ -86,6 +86,7 @@ public class Server
         }
         finally
         {
+            Console.WriteLine("Ends");
             tcpListener.Stop();
         }
     }
