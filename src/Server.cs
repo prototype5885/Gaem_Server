@@ -4,6 +4,12 @@ using System.Text;
 
 public class Server
 {
+    // Creates thing that handles list of clients
+    TcpClient[] clients = new TcpClient[2];
+
+    // Creates thing that handles data of each client
+    ServerData serverData = new ServerData();
+
     private int messageNumber = 0;
 
     public void StartServer()
@@ -25,17 +31,11 @@ public class Server
         // Sets server address
         TcpListener tcpListener = new TcpListener(IPAddress.Any, 1942);
 
-        // Creates thing that handles list of clients
-        TcpClient[] clients = new TcpClient[2];
-
-        // Creates thing that handles data of each client
-        ServerData serverData = new ServerData();
-
         // Starts the server
         tcpListener.Start();
 
         // Starts timer that broadcasts messages to all clients every given time
-        Timer broadcastTimer = new Timer(state => Tick(clients, serverData), null, 0, 50);
+        Timer broadcastTimer = new Timer(state => Tick(), null, 0, 50);
 
         Console.WriteLine("Server started.");
         try
@@ -45,7 +45,7 @@ public class Server
                 Console.WriteLine("Waiting for client to connect...");
 
                 // Blocks/waits until a client has connected to the server
-                TcpClient client = tcpListener.AcceptTcpClient();
+                TcpClient client = await tcpListener.AcceptTcpClientAsync();
 
                 //Gets the IP address of the client
                 string clientIpAddress = ((IPEndPoint)client.Client.RemoteEndPoint).Address.ToString();
@@ -54,7 +54,7 @@ public class Server
                 Console.WriteLine($"Client connecting from {clientIpAddress}");
 
                 // Find an available slot for the client
-                int index = FindSlotForClient(clients);
+                int index = FindSlotForClient();
 
                 // Assigns slot for the client
                 if (index != -1)
@@ -90,7 +90,7 @@ public class Server
             tcpListener.Stop();
         }
     }
-    private void Tick(TcpClient[] clients, ServerData serverData)
+    private void Tick()
     {
         {
             //Console.Clear();
@@ -128,13 +128,14 @@ public class Server
                         // Send a message to each connected clients
                         byte[] message = Encoding.ASCII.GetBytes(messageNumber.ToString());
                         networkStream.Write(message, 0, message.Length);
+                        Console.WriteLine("tick");
                     }
                     catch (Exception ex)
                     {
                         // Handle exceptions that may occur
                         Console.WriteLine($"Error sending message to a client. Exception: {ex.Message}");
                         int index = Array.IndexOf(clients, client);
-                        ClientDisconnected(index, clients, serverData);
+                        ClientDisconnected(index);
                     }
                 }
             }
@@ -142,7 +143,7 @@ public class Server
         messageNumber += 1;
     }
 
-    private static int FindSlotForClient(TcpClient[] clients)
+    private int FindSlotForClient()
     {
         {
             for (int i = 0; i < clients.Length; i++)
@@ -156,10 +157,10 @@ public class Server
         return -1; // No available slot
     }
 
-    private void ClientDisconnected(int index, TcpClient[] clients, ServerData serverData)
+    private void ClientDisconnected(int index)
     {
         clients[index] = null;
         serverData.DeleteDisconnectedPlayer(index);
-        Console.WriteLine("Disconnected client: " + index);
+        Console.WriteLine($"Client index {index} has disconnected.");
     }
 }
