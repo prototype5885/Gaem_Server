@@ -1,67 +1,60 @@
-﻿using System;
-using System.Collections;
-using System.Collections.Generic;
-using System.Linq;
-using System.Net;
+﻿using System.Net;
 using System.Net.Sockets;
 using System.Text;
-using System.Threading.Tasks;
 
 public class Server
 {
-    private TcpListener tcpListener;
-    private TcpClient[] clients;
-    private ServerData serverData;
-    
     private int messageNumber = 0;
-    
-    public Server(int port)
+
+    public void StartServer()
     {
         try
         {
-            // Starts server
-            tcpListener = new TcpListener(IPAddress.Any, port);
-            
-            // Starts stuff that handles the clients
-            clients = new TcpClient[2];
-            
-            // The thing that manages data about clients
-            serverData = new ServerData();
-            
-            // Opens the thing that accepts new clients
-            Thread listenerThread = new Thread(new ThreadStart(ListenForClients));
-            listenerThread.Start();
+            Task.Run(() => ListenForClients());
 
-            // Starts timer that broadcasts messages to all clients every given time
-            Timer broadcastTimer = new Timer(state => Tick(), null, 0, 50);
-
-            Console.Write("Server Started");
+            Thread.Sleep(Timeout.Infinite);
         }
         catch (Exception ex)
         {
-            Console.Write("Server failed to start with exception: " + ex);
+            Console.WriteLine("Server failed to start with exception: " + ex);
         }
     }
 
-    private void ListenForClients()
+    async Task ListenForClients()
     {
-        // TcpListener tcpListener = (TcpListener)tcpListenerObj;
+        // Sets server address
+        TcpListener tcpListener = new TcpListener(IPAddress.Any, 1942);
+
+        // Creates thing that handles list of clients
+        TcpClient[] clients = new TcpClient[2];
+
+        // Creates thing that handles data of each client
+        ServerData serverData = new ServerData();
+
+        // Starts the server
         tcpListener.Start();
-        while (true)
+
+        // Starts timer that broadcasts messages to all clients every given time
+        Timer broadcastTimer = new Timer(state => Tick(clients, serverData), null, 0, 50);
+
+        Console.WriteLine("Server started.");
+        try
         {
-            try
+            while (true)
             {
+                Console.WriteLine("Waiting for client to connect...");
+
                 // Blocks/waits until a client has connected to the server
                 TcpClient client = tcpListener.AcceptTcpClient();
-                
-                // Gets the IP address of the client
+
+                //Gets the IP address of the client
                 string clientIpAddress = ((IPEndPoint)client.Client.RemoteEndPoint).Address.ToString();
-                
+
                 // Prints info about connected client
                 Console.WriteLine($"Client connecting from {clientIpAddress}");
 
                 // Find an available slot for the client
-                int index = FindSlotForClient();
+                int index = FindSlotForClient(clients);
 
                 // Assigns slot for the client
                 if (index != -1)
@@ -80,19 +73,23 @@ public class Server
                     client.Close();
                 }
             }
-            catch (SocketException ex)
-            {
-                // Handle socket exceptions
-                Console.WriteLine($"SocketException: {ex.Message}");
-            }
-            catch (Exception ex)
-            {
-                // Handle other exceptions
-                Console.WriteLine($"Exception: {ex.Message}");
-            }
+        }
+        catch (SocketException ex)
+        {
+            // Handle socket exceptions
+            Console.WriteLine($"SocketException: {ex.Message}");
+        }
+        catch (Exception ex)
+        {
+            // Handle other exceptions
+            Console.WriteLine($"Exception: {ex.Message}");
+        }
+        finally
+        {
+            tcpListener.Stop();
         }
     }
-    private void Tick()
+    private void Tick(TcpClient[] clients, ServerData serverData)
     {
         {
             //Console.Clear();
@@ -136,7 +133,7 @@ public class Server
                         // Handle exceptions that may occur
                         Console.WriteLine($"Error sending message to a client. Exception: {ex.Message}");
                         int index = Array.IndexOf(clients, client);
-                        ClientDisconnected(index);
+                        ClientDisconnected(index, clients, serverData);
                     }
                 }
             }
@@ -144,7 +141,7 @@ public class Server
         messageNumber += 1;
     }
 
-    private int FindSlotForClient()
+    private static int FindSlotForClient(TcpClient[] clients)
     {
         {
             for (int i = 0; i < clients.Length; i++)
@@ -158,7 +155,7 @@ public class Server
         return -1; // No available slot
     }
 
-    private void ClientDisconnected(int index)
+    private void ClientDisconnected(int index, TcpClient[] clients, ServerData serverData)
     {
         clients[index] = null;
         serverData.DeleteDisconnectedPlayer(index);
