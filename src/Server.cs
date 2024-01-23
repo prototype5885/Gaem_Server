@@ -1,4 +1,5 @@
-﻿using System;
+﻿using Newtonsoft.Json;
+using System;
 using System.Net;
 using System.Net.Sockets;
 using System.Reflection.PortableExecutable;
@@ -12,7 +13,10 @@ public class Server
 
     string[] ipAddresses = new string[10]; // String array of clients' ip addresses
 
-    int messageNumber = 0;
+    bool ipAuthentication = false;
+    bool userAuthentication = true;
+
+    //int messageNumber = 0;
 
     string messageToBroadcast = "";
 
@@ -53,42 +57,32 @@ public class Server
 
                 Console.WriteLine($"Client connecting from {clientIpAddress}"); // Prints info about the new client
 
-                bool ipAlreadyConnected = false;
-                foreach (string ipAddress in ipAddresses) // Rejects connection if a client tries to connect from same ip address multiple times
+                if (ipAuthentication)
                 {
-                    if (ipAddress == clientIpAddress)
+                    bool ipAlreadyConnected = false;
+                    foreach (string ipAddress in ipAddresses) // Rejects connection if a client tries to connect from same ip address multiple times
                     {
-                        Console.WriteLine($"Connection rejected for {clientIpAddress}: A client with same IP address is already connected. ");
-                        client.Close();
-                        ipAlreadyConnected = true;
+                        if (ipAddress == clientIpAddress)
+                        {
+                            Console.WriteLine($"Connection rejected for {clientIpAddress}: A client with same IP address is already connected.");
+                            client.Close();
+                            ipAlreadyConnected = true;
+                        }
+                    }
+                    if (ipAlreadyConnected) // Restarts the while loop if ip is already connected
+                    {
+                        continue;
                     }
                 }
-                if (ipAlreadyConnected) // Restarts the while loop
+
+                // Proceeds to check the authentication of the connecting client
+                if (userAuthentication)
                 {
-                    continue;
+                    Task.Run(() => Authentication(client));
                 }
-
-                // login stuff for later //
-
-                int index = FindSlotForClient(); // Find an available slot for the new client
-
-                if (index != -1) // Runs if there are free slots
+                else
                 {
-                    clients[index] = client; // Adds new client to a slot
-
-                    Console.WriteLine($"Assigned index {index} for {clientIpAddress}");
-
-                    serverData.AddConnectedPlayer(index, "wtf"); // Assings new client to data manager
-
-                    ipAddresses[index] = clientIpAddress; // Adds the client to the array of connected clients' ip addresses
-
-                    Task.Run(() => ReceivingData(client)); // Creates new async func to receive data from the new client
-
-                }
-                else // Reject the connection if all slots are occupied
-                {
-                    Console.WriteLine($"Connection rejected for {clientIpAddress}: Maximum number of clients reached. ");
-                    client.Close();
+                    ClientAccepted(client);
                 }
             }
         }
@@ -101,15 +95,93 @@ public class Server
             Console.WriteLine($"Exception: {ex.Message}");
         }
     }
+    async Task Authentication(TcpClient client) // Authenticate the client
+    {
+        NetworkStream authenticationStream = client.GetStream();
+
+        byte[] message = new byte[128];
+        int bytesRead;
+
+        while (true)
+        {
+            bytesRead = 0;
+            try
+            {
+                bytesRead = await authenticationStream.ReadAsync(message, 0, message.Length); // Waits for new client to send username and password
+            }
+            catch
+            {
+                Console.WriteLine("Failed to read autentication of client");
+                break;
+            }
+
+            if (bytesRead == 0)
+                break;
+
+            string receivedData = Encoding.UTF8.GetString(message, 0, bytesRead); // Converts the received bytes to string
+
+            Credentials credentials = JsonConvert.DeserializeObject<Credentials>(receivedData); // Converts received json format data to username and password
+
+            if (credentials.un == "user" && credentials.pw == "password") // Checks if username and password exists in the database
+            {
+                Console.WriteLine("Authentication successful");
+
+                // Send a response back to the client
+                byte[] data = Encoding.UTF8.GetBytes("1"); // Response 1 means the username/password were accepted
+                await authenticationStream.WriteAsync(data, 0, data.Length);
+
+                // Accepts connection
+                ClientAccepted(client);
+                break;
+            }
+            else // Rejects
+            {
+                Console.WriteLine("User entered wrong username or password");
+
+                // Send a response back to the client
+                byte[] data = Encoding.UTF8.GetBytes("0"); // Response 0 means the username/password were rejected
+                await authenticationStream.WriteAsync(data, 0, data.Length);
+
+                // Rejects connection
+                authenticationStream.Flush();
+                //client.Close();
+                continue;
+            }
+        }
+    }
+    void ClientAccepted(TcpClient client)
+    {
+        string clientIpAddress = ((IPEndPoint)client.Client.RemoteEndPoint).Address.ToString(); // Gets the IP address of the accepted
+
+        int index = FindSlotForClient(); // Find an available slot for the new client
+
+        if (index != -1) // Runs if there are free slots
+        {
+            clients[index] = client; // Adds new client to a slot
+
+            Console.WriteLine($"Assigned index {index} for {clientIpAddress}");
+
+            serverData.AddConnectedPlayer(index, "wtf"); // Assings new client to data manager
+
+            ipAddresses[index] = clientIpAddress; // Adds the client to the array of connected clients' ip addresses
+
+            Task.Run(() => ReceivingData(client)); // Creates new async func to receive data from the new client
+        }
+        else // Reject the connection if all slots are occupied
+        {
+            Console.WriteLine($"Connection rejected for {clientIpAddress}: Maximum number of clients reached. ");
+            client.Close();
+        }
+    }
     async Task ReceivingData(TcpClient client) // One such async task is created for each client
     {
         NetworkStream receivingStream = client.GetStream();
         int index = Array.IndexOf(clients, client);
-
         while (true)
         {
             try
             {
+
                 byte[] receivedBytes = new byte[1024];
                 int bytesRead;
 
@@ -126,6 +198,8 @@ public class Server
             {
                 Console.WriteLine($"Error receiving message from client index {index}. Exception: {ex.Message}");
                 ClientDisconnected(index); // Disconnects client
+                break;
+
             }
         }
     }
@@ -144,7 +218,7 @@ public class Server
                         NetworkStream sendingStream = client.GetStream();
                         StreamReader reader = new StreamReader(sendingStream);
 
-                        byte[] sentMessage = Encoding.ASCII.GetBytes("alo");
+                        byte[] sentMessage = Encoding.ASCII.GetBytes("XD");
                         await sendingStream.WriteAsync(sentMessage, 0, sentMessage.Length);
 
                         sendingStream.Flush();
@@ -152,7 +226,7 @@ public class Server
                     catch (Exception ex)
                     {
                         Console.WriteLine($"Error sending message to client index {index}. Exception: {ex.Message}");
-                        ClientDisconnected(index); // Disconnect client
+                        ClientDisconnected(index); // Disconnects client
                     }
                 }
             }
@@ -175,9 +249,15 @@ public class Server
     }
     void ClientDisconnected(int index)
     {
-        clients[index].Close();
-        clients[index] = null;
-        serverData.DeleteDisconnectedPlayer(index);
+        clients[index].Close(); // Closes connection to the client
+        clients[index] = null; // Deletes it from list of clients
+        ipAddresses[index] = null; // Deletes client ip address of disconnected client
+        serverData.DeleteDisconnectedPlayer(index); // Deletes client data from data
         Console.WriteLine($"Client index {index} has disconnected.");
     }
+}
+public class Credentials
+{
+    public string un { get; set; }
+    public string pw { get; set; }
 }
