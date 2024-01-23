@@ -10,6 +10,8 @@ public class Server
 
     ServerData serverData = new ServerData(); // Creates thing that handles data of each client
 
+    string[] ipAddresses = new string[10]; // String array of clients' ip addresses
+
     int messageNumber = 0;
 
     string messageToBroadcast = "";
@@ -45,21 +47,40 @@ public class Server
 
             while (true)
             {
-                TcpClient client = tcpListener.AcceptTcpClient(); // Waits / blocks until a client has connected to the server
+                TcpClient client = tcpListener.AcceptTcpClient(); // Waits/blocks until a client has connected to the server
 
                 string clientIpAddress = ((IPEndPoint)client.Client.RemoteEndPoint).Address.ToString(); // Gets the IP address of the new client
 
                 Console.WriteLine($"Client connecting from {clientIpAddress}"); // Prints info about the new client
 
+                bool ipAlreadyConnected = false;
+                foreach (string ipAddress in ipAddresses) // Rejects connection if a client tries to connect from same ip address multiple times
+                {
+                    if (ipAddress == clientIpAddress)
+                    {
+                        Console.WriteLine($"Connection rejected for {clientIpAddress}: A client with same IP address is already connected. ");
+                        client.Close();
+                        ipAlreadyConnected = true;
+                    }
+                }
+                if (ipAlreadyConnected) // Restarts the while loop
+                {
+                    continue;
+                }
+
+                // login stuff for later //
+
                 int index = FindSlotForClient(); // Find an available slot for the new client
 
-                if (index != -1) // Adds new client to a slot if there is free one available
+                if (index != -1) // Runs if there are free slots
                 {
-                    clients[index] = client;
+                    clients[index] = client; // Adds new client to a slot
 
                     Console.WriteLine($"Assigned index {index} for {clientIpAddress}");
 
                     serverData.AddConnectedPlayer(index, "wtf"); // Assings new client to data manager
+
+                    ipAddresses[index] = clientIpAddress; // Adds the client to the array of connected clients' ip addresses
 
                     Task.Run(() => ReceivingData(client)); // Creates new async func to receive data from the new client
 
@@ -123,7 +144,7 @@ public class Server
                         NetworkStream sendingStream = client.GetStream();
                         StreamReader reader = new StreamReader(sendingStream);
 
-                        byte[] sentMessage = Encoding.ASCII.GetBytes("");
+                        byte[] sentMessage = Encoding.ASCII.GetBytes("alo");
                         await sendingStream.WriteAsync(sentMessage, 0, sentMessage.Length);
 
                         sendingStream.Flush();
