@@ -1,5 +1,5 @@
 ﻿
-public class ServerData
+public class PlayersData
 {
     // id, posX, posY, posZ, name
     Dictionary<int, (float, float, float, string)> currentPlayers = new Dictionary<int, (float, float, float, string)>();
@@ -22,4 +22,10 @@ public class ServerData
             Console.WriteLine(kvp);
         }
     }
+}
+public class LoginData
+{
+    public bool lr { get; set; } // True if login, false if register
+    public string un { get; set; }
+    public string pw { get; set; }
 }

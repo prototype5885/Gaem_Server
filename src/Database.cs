@@ -1,15 +1,16 @@
 ﻿using System.Data.SQLite;
+using System.Reflection.Metadata.Ecma335;
 
 public class Database
 {
     SQLiteConnection dbConnection;
 
+    PasswordHasher passwordHasher = new PasswordHasher();
     public Database()
     {
 
         SQLiteConnectionStringBuilder builder = new SQLiteConnectionStringBuilder();
         builder.DataSource = "database.db";
-        //builder.DataSource = "database.db";
 
         string connectionString = builder.ConnectionString;
 
@@ -18,14 +19,11 @@ public class Database
         // Open the connection
         dbConnection.Open();
 
-        // Create a table
+        // Create Player table if it doesnt exist yet
         CreatePlayersTable();
 
-
         // Insert some data into the table
-        //InsertData(dbConnection, "Attila", 2, 1000);
-        //InsertData(dbConnection, "Yadana", 3, 1256);
-        //NewUser(dbConnection, "testuser", "secret");
+        //NewUser("user", "password");
 
         // Query and display data
         //QueryAndDisplayData();
@@ -37,22 +35,27 @@ public class Database
             command.ExecuteNonQuery();
         }
     }
-    public void NewUser(string username, string hashedPassword)
+    public bool RegisterUser(string username, string hashedPassword)
     {
-        string encryptedPassword = BCrypt.Net.BCrypt.HashPassword(hashedPassword);
-
-        using (SQLiteCommand command = new SQLiteCommand("INSERT INTO Players (Username, Password, Wage, Money) VALUES (@username, @password, @wage, @money);", dbConnection))
+        if (!SearchIfUserExists(username)) // Runs if the chosen username isnt taken yet
         {
-            //command.Parameters.AddWithValue("@id", id);
-            command.Parameters.AddWithValue("@username", username);
-            command.Parameters.AddWithValue("@password", encryptedPassword);
-            command.Parameters.AddWithValue("@wage", 1);
-            command.Parameters.AddWithValue("@money", 1000);
+            using (SQLiteCommand command = new SQLiteCommand("INSERT INTO Players (Username, Password, Wage, Money) VALUES (@username, @password, @wage, @money);", dbConnection))
+            {
+                command.Parameters.AddWithValue("@username", username);
+                command.Parameters.AddWithValue("@password", passwordHasher.EncryptPassword(hashedPassword)); // encrypts password using bcrypt
+                command.Parameters.AddWithValue("@wage", 1);
+                command.Parameters.AddWithValue("@money", 1000);
 
-            command.ExecuteNonQuery();
+                command.ExecuteNonQuery();
+                return true;
+            }
+        }
+        else
+        {
+            return false;
         }
     }
-    public void LoginUser(string username, string hashedPassword)
+    public bool LoginUser(string username, string hashedPassword)
     {
         using (SQLiteCommand command = new SQLiteCommand("SELECT * FROM Players WHERE Username = @username", dbConnection))
         {
@@ -60,15 +63,37 @@ public class Database
 
             using (SQLiteDataReader reader = command.ExecuteReader())
             {
-                if (reader.Read())
+                if (reader.Read()) // User found
                 {
-                    // User found
-                    Console.WriteLine(BCrypt.Net.BCrypt.Verify(hashedPassword, $"{reader["Password"]}"));
+                    if (passwordHasher.VerifyPassword(hashedPassword, $"{reader["Password"]}")) // Checks if passwords matches using bcrypt
+                    {
+                        Console.WriteLine("Login was correct");
+                        return true;
+                    }
+                    else
+                    {
+                        Console.WriteLine("Login was fail");
+                        return false;
+                    }
                 }
-                else
+                else // No user registered with this username
                 {
                     Console.WriteLine("User not found.");
+                    return false;
                 }
+            }
+        }
+    }
+    public bool SearchIfUserExists(string username)
+    {
+        using (SQLiteCommand command = new SQLiteCommand("SELECT * FROM Players WHERE Username = @username", dbConnection))
+        {
+            command.Parameters.AddWithValue("@username", username);
+
+            using (SQLiteDataReader reader = command.ExecuteReader())
+            {
+                if (reader.Read()) { return true; } // User found
+                else { return false; } // User not found
             }
         }
     }

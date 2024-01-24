@@ -8,7 +8,8 @@ using System.Text;
 public class Server
 {
     TcpClient[] clients = new TcpClient[10]; // Creates thing that handles list of clients
-    ServerData serverData = new ServerData(); // Creates thing that handles data of each client
+    PlayersData playersData = new PlayersData(); // Creates thing that handles data of each client
+    Database database = new Database(); // Creates database
     string[] ipAddresses = new string[10]; // String array of clients' ip addresses
 
     bool ipAuthentication = false;
@@ -22,28 +23,21 @@ public class Server
     {
         try
         {
-            //Task.Run(() => WaitingForNewClients()); // Waiting for clients to connect in async
-            WaitingForNewClients();
-            //Thread.Sleep(100);
-            //Task.Run(() => ReceiveData());
-
-            //Timer broadcastTimer = new Timer(state => Tick(), null, 0, 50); // Starts timer that broadcasts messages to all clients every given time
-            //Thread.Sleep(Timeout.Infinite);
+            TcpListener tcpListener = new TcpListener(IPAddress.Any, 1942); // Sets server address
+            tcpListener.Start(); // Starts the server
+            Task.Run(() => SendingData()); // Starts the async task that handles sending data to each client
+            WaitingForNewClients(tcpListener);
         }
         catch (Exception ex)
         {
             Console.WriteLine("Server failed to start with exception: " + ex);
         }
     }
-    void WaitingForNewClients()
+    void WaitingForNewClients(TcpListener tcpListener)
     {
+        Console.WriteLine("Server started, waiting for clients to connect...");
         try
         {
-            TcpListener tcpListener = new TcpListener(IPAddress.Any, 1942); // Sets server address
-            tcpListener.Start(); // Starts the server
-            Task.Run(() => SendingData()); // Starts the async task that handles sending data to each client
-            Console.WriteLine("Server started, waiting for clients to connect...");
-
             while (true)
             {
                 TcpClient client = tcpListener.AcceptTcpClient(); // Waits/blocks until a client has connected to the server
@@ -90,6 +84,7 @@ public class Server
     }
     async Task Authentication(TcpClient client) // Authenticate the client
     {
+        Console.WriteLine("Start authentication");
         NetworkStream authenticationStream = client.GetStream();
 
         byte[] message = new byte[128];
@@ -112,35 +107,67 @@ public class Server
                 break;
 
             string receivedData = Encoding.UTF8.GetString(message, 0, bytesRead); // Converts the received bytes to string
-            Credentials credentials = JsonConvert.DeserializeObject<Credentials>(receivedData); // Converts received json format data to username and password
+            LoginData loginData = JsonConvert.DeserializeObject<LoginData>(receivedData); // Converts received json format data to username and password
 
-            if (credentials.un == "user" && credentials.pw == "password") // Checks if username and password exists in the database
+            bool LoginOrRegister = loginData.lr; // True if client wants to login, false if client wants to register register
+            string username = loginData.un;
+            string hashedPassword = loginData.pw;
+
+            if (LoginOrRegister == true) // Runs if client wants to login
             {
-                Console.WriteLine("Authentication successful");
+                Console.WriteLine("Logging in");
+                if (database.LoginUser(username, hashedPassword)) // Checks if username and password exists in the database
+                {
+                    Console.WriteLine("Authentication successful");
 
-                // Send a response back to the client
-                byte[] data = Encoding.UTF8.GetBytes("1"); // Response 1 means the username/password were accepted
-                await authenticationStream.WriteAsync(data, 0, data.Length);
+                    // Send a response back to the client
+                    byte[] data = Encoding.UTF8.GetBytes("1"); // Response 1 means the username/password were accepted
+                    await authenticationStream.WriteAsync(data, 0, data.Length);
 
-                // Accepts connection
-                ClientAccepted(client);
-                break;
+                    // Accepts connection
+                    ClientAccepted(client);
+                    break;
+                }
+                else // Rejects
+                {
+                    Console.WriteLine("User entered wrong username or password");
+
+                    // Send a response back to the client
+                    byte[] data = Encoding.UTF8.GetBytes("0"); // Response 0 means the username/password were rejected
+                    await authenticationStream.WriteAsync(data, 0, data.Length);
+
+                    // Rejects connection
+                    authenticationStream.Flush();
+                    //client.Close();
+                    continue;
+                }
             }
-            else // Rejects
+            else // Runs if client wants to register
             {
-                Console.WriteLine("User entered wrong username or password");
+                if (username.Length > 16) // Checks if username is longer than 16 characters
+                {
+                    Console.WriteLine("Client's chosen username is too long");
+                    byte[] data = Encoding.UTF8.GetBytes("2"); // Response to client, 2 means username is too long
+                    await authenticationStream.WriteAsync(data, 0, data.Length);
+                }
+                else if (database.RegisterUser(username, hashedPassword)) // Runs if registration was succesful
+                {
+                    Console.WriteLine("Registration was successful");
+                    byte[] data = Encoding.UTF8.GetBytes("1"); // Response to client, 1 means registration was successful
+                    await authenticationStream.WriteAsync(data, 0, data.Length);
 
-                // Send a response back to the client
-                byte[] data = Encoding.UTF8.GetBytes("0"); // Response 0 means the username/password were rejected
-                await authenticationStream.WriteAsync(data, 0, data.Length);
-
-                // Rejects connection
-                authenticationStream.Flush();
-                //client.Close();
-                continue;
+                    ClientAccepted(client);
+                }
+                else
+                {
+                    Console.WriteLine("Client's chosen username is already taken");
+                    byte[] data = Encoding.UTF8.GetBytes("3"); // Response to client, 3 means username is already taken
+                    await authenticationStream.WriteAsync(data, 0, data.Length);
+                }
             }
         }
     }
+
     void ClientAccepted(TcpClient client)
     {
         string clientIpAddress = ((IPEndPoint)client.Client.RemoteEndPoint).Address.ToString(); // Gets the IP address of the accepted
@@ -150,8 +177,8 @@ public class Server
         if (index != -1) // Runs if there are free slots
         {
             clients[index] = client; // Adds new client to a slot
-            Console.WriteLine($"Assigned index {index} for {clientIpAddress}");
-            serverData.AddConnectedPlayer(index, "wtf"); // Assings new client to data manager
+            Console.WriteLine($"Assigned index slot {index} for {clientIpAddress}");
+            playersData.AddConnectedPlayer(index, "wtf"); // Assings new client to data manager
             ipAddresses[index] = clientIpAddress; // Adds the client to the array of connected clients' ip addresses
             Task.Run(() => ReceivingData(client)); // Creates new async func to receive data from the new client
         }
@@ -181,13 +208,12 @@ public class Server
                 Console.WriteLine($"Error receiving message from client index {index}. Exception: {ex.Message}");
                 ClientDisconnected(index); // Disconnects client
                 break;
-
             }
+            //Thread.Sleep(100);
         }
     }
     async Task SendingData()
     {
-        Console.WriteLine("Waiting for data from users...");
         while (true)
         {
             foreach (TcpClient client in clients)
@@ -232,12 +258,7 @@ public class Server
         clients[index].Close(); // Closes connection to the client
         clients[index] = null; // Deletes it from list of clients
         ipAddresses[index] = null; // Deletes client ip address of disconnected client
-        serverData.DeleteDisconnectedPlayer(index); // Deletes client data from data
+        playersData.DeleteDisconnectedPlayer(index); // Deletes client data from data
         Console.WriteLine($"Client index {index} has disconnected.");
     }
-}
-public class Credentials
-{
-    public string un { get; set; }
-    public string pw { get; set; }
 }
