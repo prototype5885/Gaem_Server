@@ -8,9 +8,7 @@ using System.Text;
 public class Server
 {
     TcpClient[] clients = new TcpClient[10]; // Creates thing that handles list of clients
-
     ServerData serverData = new ServerData(); // Creates thing that handles data of each client
-
     string[] ipAddresses = new string[10]; // String array of clients' ip addresses
 
     bool ipAuthentication = false;
@@ -42,19 +40,14 @@ public class Server
         try
         {
             TcpListener tcpListener = new TcpListener(IPAddress.Any, 1942); // Sets server address
-
             tcpListener.Start(); // Starts the server
-
             Task.Run(() => SendingData()); // Starts the async task that handles sending data to each client
-
             Console.WriteLine("Server started, waiting for clients to connect...");
 
             while (true)
             {
                 TcpClient client = tcpListener.AcceptTcpClient(); // Waits/blocks until a client has connected to the server
-
                 string clientIpAddress = ((IPEndPoint)client.Client.RemoteEndPoint).Address.ToString(); // Gets the IP address of the new client
-
                 Console.WriteLine($"Client connecting from {clientIpAddress}"); // Prints info about the new client
 
                 if (ipAuthentication)
@@ -119,7 +112,6 @@ public class Server
                 break;
 
             string receivedData = Encoding.UTF8.GetString(message, 0, bytesRead); // Converts the received bytes to string
-
             Credentials credentials = JsonConvert.DeserializeObject<Credentials>(receivedData); // Converts received json format data to username and password
 
             if (credentials.un == "user" && credentials.pw == "password") // Checks if username and password exists in the database
@@ -158,13 +150,9 @@ public class Server
         if (index != -1) // Runs if there are free slots
         {
             clients[index] = client; // Adds new client to a slot
-
             Console.WriteLine($"Assigned index {index} for {clientIpAddress}");
-
             serverData.AddConnectedPlayer(index, "wtf"); // Assings new client to data manager
-
             ipAddresses[index] = clientIpAddress; // Adds the client to the array of connected clients' ip addresses
-
             Task.Run(() => ReceivingData(client)); // Creates new async func to receive data from the new client
         }
         else // Reject the connection if all slots are occupied
@@ -181,17 +169,11 @@ public class Server
         {
             try
             {
-
                 byte[] receivedBytes = new byte[1024];
                 int bytesRead;
-
                 bytesRead = await receivingStream.ReadAsync(receivedBytes, 0, receivedBytes.Length);
-
                 string receivedData = Encoding.ASCII.GetString(receivedBytes, 0, bytesRead);
-
-
                 Console.WriteLine($"{index} Received from client: {receivedData}");
-
                 receivingStream.Flush();
             }
             catch (Exception ex)
@@ -217,10 +199,8 @@ public class Server
                     {
                         NetworkStream sendingStream = client.GetStream();
                         StreamReader reader = new StreamReader(sendingStream);
-
                         byte[] sentMessage = Encoding.ASCII.GetBytes("XD");
                         await sendingStream.WriteAsync(sentMessage, 0, sentMessage.Length);
-
                         sendingStream.Flush();
                     }
                     catch (Exception ex)
