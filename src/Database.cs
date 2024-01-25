@@ -30,19 +30,20 @@ public class Database
     }
     void CreatePlayersTable()
     {
-        using (SQLiteCommand command = new SQLiteCommand("CREATE TABLE IF NOT EXISTS Players (ID INTEGER PRIMARY KEY AUTOINCREMENT, Username TEXT, Password TEXT, Wage INTEGER, Money INTEGER);", dbConnection))
+        using (SQLiteCommand command = new SQLiteCommand("CREATE TABLE IF NOT EXISTS Players (ID INTEGER PRIMARY KEY AUTOINCREMENT, Username TEXT, Password TEXT, LastIP TEXT, Wage INTEGER, Money INTEGER);", dbConnection))
         {
             command.ExecuteNonQuery();
         }
     }
-    public bool RegisterUser(string username, string hashedPassword)
+    public bool RegisterUser(string username, string hashedPassword, string LastIPAddress)
     {
         if (!SearchIfUserExists(username)) // Runs if the chosen username isnt taken yet
         {
-            using (SQLiteCommand command = new SQLiteCommand("INSERT INTO Players (Username, Password, Wage, Money) VALUES (@username, @password, @wage, @money);", dbConnection))
+            using (SQLiteCommand command = new SQLiteCommand("INSERT INTO Players (Username, Password, LastIP, Wage, Money) VALUES (@username, @password, @lastip, @wage, @money);", dbConnection))
             {
                 command.Parameters.AddWithValue("@username", username);
                 command.Parameters.AddWithValue("@password", passwordHasher.EncryptPassword(hashedPassword)); // encrypts password using bcrypt
+                command.Parameters.AddWithValue("@lastip", LastIPAddress);
                 command.Parameters.AddWithValue("@wage", 1);
                 command.Parameters.AddWithValue("@money", 1000);
 

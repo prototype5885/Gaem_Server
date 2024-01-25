@@ -65,7 +65,7 @@ public class Server
                 // Proceeds to check the authentication of the connecting client
                 if (userAuthentication)
                 {
-                    Task.Run(() => Authentication(client));
+                    Task.Run(() => Authentication(client, clientIpAddress));
                 }
                 else
                 {
@@ -82,9 +82,9 @@ public class Server
             Console.WriteLine($"Exception: {ex.Message}");
         }
     }
-    async Task Authentication(TcpClient client) // Authenticate the client
+    async Task Authentication(TcpClient client, string clientIpAddress) // Authenticate the client
     {
-        Console.WriteLine("Start authentication");
+        Console.WriteLine("Starting authentication of client...");
         NetworkStream authenticationStream = client.GetStream();
 
         byte[] message = new byte[128];
@@ -99,7 +99,7 @@ public class Server
             }
             catch
             {
-                Console.WriteLine("Failed to read autentication of client");
+                Console.WriteLine("Failed to authenticate client, most likely disconnected.");
                 break;
             }
 
@@ -115,10 +115,9 @@ public class Server
 
             if (LoginOrRegister == true) // Runs if client wants to login
             {
-                Console.WriteLine("Logging in");
                 if (database.LoginUser(username, hashedPassword)) // Checks if username and password exists in the database
                 {
-                    Console.WriteLine("Authentication successful");
+                    Console.WriteLine("Login of client successful");
 
                     // Send a response back to the client
                     byte[] data = Encoding.UTF8.GetBytes("1"); // Response 1 means the username/password were accepted
@@ -150,13 +149,14 @@ public class Server
                     byte[] data = Encoding.UTF8.GetBytes("2"); // Response to client, 2 means username is too long
                     await authenticationStream.WriteAsync(data, 0, data.Length);
                 }
-                else if (database.RegisterUser(username, hashedPassword)) // Runs if registration was succesful
+                else if (database.RegisterUser(username, hashedPassword, clientIpAddress)) // Runs if registration was succesful
                 {
-                    Console.WriteLine("Registration was successful");
+                    Console.WriteLine("Registration of client was successful");
                     byte[] data = Encoding.UTF8.GetBytes("1"); // Response to client, 1 means registration was successful
                     await authenticationStream.WriteAsync(data, 0, data.Length);
 
                     ClientAccepted(client);
+                    break;
                 }
                 else
                 {
