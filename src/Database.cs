@@ -1,49 +1,54 @@
-﻿using System.Data.SQLite;
+﻿using Microsoft.Data.Sqlite;
 using System.Reflection.Metadata.Ecma335;
 
 public class Database
 {
-    SQLiteConnection dbConnection;
+    SqliteConnection dbConnection;
+
+
 
     PasswordHasher passwordHasher = new PasswordHasher();
     public Database()
     {
-
-        SQLiteConnectionStringBuilder builder = new SQLiteConnectionStringBuilder();
+        // Open the connection
+        SqliteConnectionStringBuilder builder = new SqliteConnectionStringBuilder();
         builder.DataSource = "database.db";
 
         string connectionString = builder.ConnectionString;
 
-        dbConnection = new SQLiteConnection(connectionString);
 
-        // Open the connection
+
+        dbConnection = new SqliteConnection(connectionString);
+
+
         dbConnection.Open();
 
         // Create Player table if it doesnt exist yet
         CreatePlayersTable();
 
-        // Insert some data into the table
-        //NewUser("user", "password");
+        // tests
+        //UpdateLastLoginIP("proto", "xd");
 
-        // Query and display data
-        //QueryAndDisplayData();
+        //DeleteUser("user2");
+
     }
     void CreatePlayersTable()
     {
-        using (SQLiteCommand command = new SQLiteCommand("CREATE TABLE IF NOT EXISTS Players (ID INTEGER PRIMARY KEY AUTOINCREMENT, Username TEXT, Password TEXT, LastIP TEXT, Wage INTEGER, Money INTEGER);", dbConnection))
+
+        using (SqliteCommand command = new SqliteCommand("CREATE TABLE IF NOT EXISTS Players (ID INTEGER PRIMARY KEY AUTOINCREMENT, Username TEXT, Password TEXT, LastLoginIP TEXT, Wage INTEGER, Money INTEGER);", dbConnection))
         {
             command.ExecuteNonQuery();
         }
     }
-    public bool RegisterUser(string username, string hashedPassword, string LastIPAddress)
+    public bool RegisterUser(string username, string hashedPassword, string LastLoginIPAddress)
     {
         if (!SearchIfUserExists(username)) // Runs if the chosen username isnt taken yet
         {
-            using (SQLiteCommand command = new SQLiteCommand("INSERT INTO Players (Username, Password, LastIP, Wage, Money) VALUES (@username, @password, @lastip, @wage, @money);", dbConnection))
+            using (SqliteCommand command = new SqliteCommand("INSERT INTO Players (Username, Password, LastLoginIP, Wage, Money) VALUES (@username, @password, @lastloginip, @wage, @money);", dbConnection))
             {
                 command.Parameters.AddWithValue("@username", username);
                 command.Parameters.AddWithValue("@password", passwordHasher.EncryptPassword(hashedPassword)); // encrypts password using bcrypt
-                command.Parameters.AddWithValue("@lastip", LastIPAddress);
+                command.Parameters.AddWithValue("@lastloginip", LastLoginIPAddress);
                 command.Parameters.AddWithValue("@wage", 1);
                 command.Parameters.AddWithValue("@money", 1000);
 
@@ -58,11 +63,11 @@ public class Database
     }
     public bool LoginUser(string username, string hashedPassword)
     {
-        using (SQLiteCommand command = new SQLiteCommand("SELECT * FROM Players WHERE Username = @username", dbConnection))
+        using (SqliteCommand command = new SqliteCommand("SELECT * FROM Players WHERE Username = @username", dbConnection))
         {
             command.Parameters.AddWithValue("@username", username);
 
-            using (SQLiteDataReader reader = command.ExecuteReader())
+            using (SqliteDataReader reader = command.ExecuteReader())
             {
                 if (reader.Read()) // User found
                 {
@@ -85,13 +90,34 @@ public class Database
             }
         }
     }
+    public void DeleteUser(string username)
+    {
+        using (SqliteCommand command = new SqliteCommand("DELETE FROM Players WHERE Username = @username", dbConnection))
+        {
+            command.Parameters.AddWithValue("@username", username);
+            command.ExecuteNonQuery();
+        }
+    }
+    public void UpdateLastLoginIP(string username, string LastLoginIP)
+    {
+        using (SqliteCommand command = new SqliteCommand($"UPDATE Players SET LastLoginIP = @lastloginip WHERE Username = @username", dbConnection))
+        {
+            command.Parameters.AddWithValue("@username", username);
+            command.Parameters.AddWithValue("@lastloginip", LastLoginIP);
+            command.ExecuteNonQuery();
+        }
+    }
+    public void GetUserDataFromDatabase()
+    {
+
+    }
     public bool SearchIfUserExists(string username)
     {
-        using (SQLiteCommand command = new SQLiteCommand("SELECT * FROM Players WHERE Username = @username", dbConnection))
+        using (SqliteCommand command = new SqliteCommand("SELECT * FROM Players WHERE Username = @username", dbConnection))
         {
             command.Parameters.AddWithValue("@username", username);
 
-            using (SQLiteDataReader reader = command.ExecuteReader())
+            using (SqliteDataReader reader = command.ExecuteReader())
             {
                 if (reader.Read()) { return true; } // User found
                 else { return false; } // User not found
@@ -100,9 +126,9 @@ public class Database
     }
     public void QueryAndDisplayData()
     {
-        using (SQLiteCommand command = new SQLiteCommand("SELECT * FROM Players;", dbConnection))
+        using (SqliteCommand command = new SqliteCommand("SELECT * FROM Players;", dbConnection))
         {
-            using (SQLiteDataReader reader = command.ExecuteReader())
+            using (SqliteDataReader reader = command.ExecuteReader())
             {
                 string text = "";
                 while (reader.Read())

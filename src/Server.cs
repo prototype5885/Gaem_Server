@@ -1,23 +1,21 @@
-﻿using Newtonsoft.Json;
+﻿//using Newtonsoft.Json;
 using System;
 using System.Net;
 using System.Net.Sockets;
 using System.Reflection.PortableExecutable;
 using System.Text;
+using System.Text.Json;
+using System.Text.Json.Serialization;
+
 
 public class Server
 {
     TcpClient[] clients = new TcpClient[10]; // Creates thing that handles list of clients
-    PlayersData playersData = new PlayersData(); // Creates thing that handles data of each client
     Database database = new Database(); // Creates database
+    DataProcessing dataProcessing = new DataProcessing();
     string[] ipAddresses = new string[10]; // String array of clients' ip addresses
 
     bool ipAuthentication = false;
-    bool userAuthentication = true;
-
-    //int messageNumber = 0;
-
-    string messageToBroadcast = "";
 
     public void StartServer()
     {
@@ -63,14 +61,7 @@ public class Server
                 }
 
                 // Proceeds to check the authentication of the connecting client
-                if (userAuthentication)
-                {
-                    Task.Run(() => Authentication(client, clientIpAddress));
-                }
-                else
-                {
-                    ClientAccepted(client);
-                }
+                Task.Run(() => Authentication(client, clientIpAddress));
             }
         }
         catch (SocketException ex)
@@ -105,9 +96,20 @@ public class Server
 
             if (bytesRead == 0)
                 break;
+            string receivedData = Encoding.ASCII.GetString(message, 0, bytesRead); // Converts the received bytes to string
 
-            string receivedData = Encoding.UTF8.GetString(message, 0, bytesRead); // Converts the received bytes to string
-            LoginData loginData = JsonConvert.DeserializeObject<LoginData>(receivedData); // Converts received json format data to username and password
+            // Converts received json format data to username and password
+            LoginData loginData;
+            try
+            {
+                loginData = JsonSerializer.Deserialize(receivedData, LoginDataContext.Default.LoginData);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"{ex.Message}");
+                await authenticationStream.FlushAsync();
+                continue;
+            }
 
             bool LoginOrRegister = loginData.lr; // True if client wants to login, false if client wants to register register
             string username = loginData.un;
@@ -120,11 +122,11 @@ public class Server
                     Console.WriteLine("Login of client successful");
 
                     // Send a response back to the client
-                    byte[] data = Encoding.UTF8.GetBytes("1"); // Response 1 means the username/password were accepted
+                    byte[] data = Encoding.ASCII.GetBytes("1"); // Response 1 means the username/password were accepted
                     await authenticationStream.WriteAsync(data, 0, data.Length);
 
                     // Accepts connection
-                    ClientAccepted(client);
+                    CheckForFreeSlots(client, username);
                     break;
                 }
                 else // Rejects
@@ -132,11 +134,11 @@ public class Server
                     Console.WriteLine("User entered wrong username or password");
 
                     // Send a response back to the client
-                    byte[] data = Encoding.UTF8.GetBytes("0"); // Response 0 means the username/password were rejected
+                    byte[] data = Encoding.ASCII.GetBytes("0"); // Response 0 means the username/password were rejected
                     await authenticationStream.WriteAsync(data, 0, data.Length);
 
                     // Rejects connection
-                    authenticationStream.Flush();
+                    await authenticationStream.FlushAsync();
                     //client.Close();
                     continue;
                 }
@@ -146,31 +148,33 @@ public class Server
                 if (username.Length > 16) // Checks if username is longer than 16 characters
                 {
                     Console.WriteLine("Client's chosen username is too long");
-                    byte[] data = Encoding.UTF8.GetBytes("2"); // Response to client, 2 means username is too long
+                    byte[] data = Encoding.ASCII.GetBytes("2"); // Response to client, 2 means username is too long
                     await authenticationStream.WriteAsync(data, 0, data.Length);
                 }
                 else if (database.RegisterUser(username, hashedPassword, clientIpAddress)) // Runs if registration was succesful
                 {
                     Console.WriteLine("Registration of client was successful");
-                    byte[] data = Encoding.UTF8.GetBytes("1"); // Response to client, 1 means registration was successful
+                    byte[] data = Encoding.ASCII.GetBytes("1"); // Response to client, 1 means registration was successful
                     await authenticationStream.WriteAsync(data, 0, data.Length);
 
-                    ClientAccepted(client);
+                    CheckForFreeSlots(client, username);
                     break;
                 }
                 else
                 {
                     Console.WriteLine("Client's chosen username is already taken");
-                    byte[] data = Encoding.UTF8.GetBytes("3"); // Response to client, 3 means username is already taken
+                    byte[] data = Encoding.ASCII.GetBytes("3"); // Response to client, 3 means username is already taken
                     await authenticationStream.WriteAsync(data, 0, data.Length);
                 }
             }
+            await authenticationStream.FlushAsync();
         }
     }
-
-    void ClientAccepted(TcpClient client)
+    void CheckForFreeSlots(TcpClient client, string username)
     {
         string clientIpAddress = ((IPEndPoint)client.Client.RemoteEndPoint).Address.ToString(); // Gets the IP address of the accepted
+
+        database.UpdateLastLoginIP(username, clientIpAddress);
 
         int index = FindSlotForClient(); // Find an available slot for the new client
 
@@ -178,15 +182,20 @@ public class Server
         {
             clients[index] = client; // Adds new client to a slot
             Console.WriteLine($"Assigned index slot {index} for {clientIpAddress}");
-            playersData.AddConnectedPlayer(index, "wtf"); // Assings new client to data manager
-            ipAddresses[index] = clientIpAddress; // Adds the client to the array of connected clients' ip addresses
-            Task.Run(() => ReceivingData(client)); // Creates new async func to receive data from the new client
+            ClientAccepted(client, index, clientIpAddress);
         }
         else // Reject the connection if all slots are occupied
         {
             Console.WriteLine($"Connection rejected for {clientIpAddress}: Maximum number of clients reached. ");
             client.Close();
         }
+    }
+    void ClientAccepted(TcpClient client, int index, string clientIpAddress)
+    {
+        dataProcessing.AddNewClient(index); // Assings new client to data manager
+        ipAddresses[index] = clientIpAddress; // Adds the client to the array of connected clients' ip addresses
+
+        Task.Run(() => ReceivingData(client)); // Creates new async func to receive data from the new client
     }
     async Task ReceivingData(TcpClient client) // One such async task is created for each client
     {
@@ -200,8 +209,35 @@ public class Server
                 int bytesRead;
                 bytesRead = await receivingStream.ReadAsync(receivedBytes, 0, receivedBytes.Length);
                 string receivedData = Encoding.ASCII.GetString(receivedBytes, 0, bytesRead);
-                Console.WriteLine($"{index} Received from client: {receivedData}");
-                receivingStream.Flush();
+
+
+
+                // some workaround so the data isnt being read duplicated
+                int indexOfSpecificCharacter = receivedData.IndexOf("}");
+                if (indexOfSpecificCharacter != -1)
+                {
+                    receivedData = receivedData.Substring(0, indexOfSpecificCharacter + 1);
+                }
+                else
+                {
+                    continue;
+                }
+                // end of workaround
+
+                try
+                {
+                    LocalPlayerPosition localPlayerPosition = JsonSerializer.Deserialize(receivedData, LocalPlayerPositionContext.Default.LocalPlayerPosition);
+                    dataProcessing.ProcessData(index, localPlayerPosition);
+                    dataProcessing.PrintConnectedClients();
+
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"{ex.Message}");
+                }
+                await receivingStream.FlushAsync();
+
+
             }
             catch (Exception ex)
             {
@@ -209,7 +245,6 @@ public class Server
                 ClientDisconnected(index); // Disconnects client
                 break;
             }
-            //Thread.Sleep(100);
         }
     }
     async Task SendingData()
@@ -225,9 +260,12 @@ public class Server
                     {
                         NetworkStream sendingStream = client.GetStream();
                         StreamReader reader = new StreamReader(sendingStream);
-                        byte[] sentMessage = Encoding.ASCII.GetBytes("XD");
+
+                        //string jsonData = JsonSerializer.Serialize(dataProcessing.everyPlayersPosition, EveryPlayerPositionContext.Default.EveryPlayerPosition);
+
+                        byte[] sentMessage = Encoding.ASCII.GetBytes("xd");
                         await sendingStream.WriteAsync(sentMessage, 0, sentMessage.Length);
-                        sendingStream.Flush();
+                        await sendingStream.FlushAsync();
                     }
                     catch (Exception ex)
                     {
@@ -236,8 +274,7 @@ public class Server
                     }
                 }
             }
-            //messageNumber += 1;
-            Thread.Sleep(500);
+            Thread.Sleep(100);
         }
     }
     int FindSlotForClient()
@@ -258,7 +295,7 @@ public class Server
         clients[index].Close(); // Closes connection to the client
         clients[index] = null; // Deletes it from list of clients
         ipAddresses[index] = null; // Deletes client ip address of disconnected client
-        playersData.DeleteDisconnectedPlayer(index); // Deletes client data from data
+        dataProcessing.DeleteDisconnectedPlayer(index); // Deletes client data from data
         Console.WriteLine($"Client index {index} has disconnected.");
     }
 }
