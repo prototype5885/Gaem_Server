@@ -1,19 +1,13 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Reflection;
-using System.Text;
-using System.Threading.Tasks;
-
-
-class DataProcessing
+﻿class DataProcessing
 {
     Dictionary<int, (float, float, float)> playersPositionDictionary = new Dictionary<int, (float, float, float)>();
     //public List<ServerPlayerPosition> everyPlayersPosition = new List<ServerPlayerPosition>();
+    public EveryPlayerPosition everyPlayerPosition = new EveryPlayerPosition();
 
     public void AddNewClient(int serverIndex)
     {
         playersPositionDictionary.Add(serverIndex, (0f, 0f, 0f)); // Adds newly connected client to 
+
 
         //ServerPlayerPosition serverPlayerPosition = new ServerPlayerPosition(); // Adds newly connected client to list
         //serverPlayerPosition.serverIndex = serverIndex;
@@ -28,6 +22,8 @@ class DataProcessing
         float posZ = localPlayerPosition.z;
 
         playersPositionDictionary[serverIndex] = (posX, posY, posZ); // Writes position X Y Z of each connected client in the dictionary
+
+        everyPlayerPosition.epp = playersPositionDictionary;
 
         //everyPlayersPosition[serverIndex].posX = posX;
         //everyPlayersPosition[serverIndex].posY = posY;

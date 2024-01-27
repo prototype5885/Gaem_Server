@@ -205,36 +205,36 @@ public class Server
         {
             try
             {
-                byte[] receivedBytes = new byte[1024];
+                byte[] receivedBytes = new byte[68];
                 int bytesRead;
                 bytesRead = await receivingStream.ReadAsync(receivedBytes, 0, receivedBytes.Length);
                 string receivedData = Encoding.ASCII.GetString(receivedBytes, 0, bytesRead);
 
-
+                Console.WriteLine($"Received data: {receivedData}");
 
                 // some workaround so the data isnt being read duplicated
-                int indexOfSpecificCharacter = receivedData.IndexOf("}");
-                if (indexOfSpecificCharacter != -1)
-                {
-                    receivedData = receivedData.Substring(0, indexOfSpecificCharacter + 1);
-                }
-                else
-                {
-                    continue;
-                }
+                //int indexOfSpecificCharacter = receivedData.IndexOf("}");
+                //if (indexOfSpecificCharacter != -1)
+                //{
+                //    receivedData = receivedData.Substring(0, indexOfSpecificCharacter + 1);
+                //}
+                //else
+                //{
+                //    continue;
+                //}
                 // end of workaround
 
-                try
-                {
-                    LocalPlayerPosition localPlayerPosition = JsonSerializer.Deserialize(receivedData, LocalPlayerPositionContext.Default.LocalPlayerPosition);
-                    dataProcessing.ProcessData(index, localPlayerPosition);
-                    dataProcessing.PrintConnectedClients();
+                //try
+                //{
+                //    LocalPlayerPosition localPlayerPosition = JsonSerializer.Deserialize(receivedData, LocalPlayerPositionContext.Default.LocalPlayerPosition);
+                //    dataProcessing.ProcessData(index, localPlayerPosition);
+                //    dataProcessing.PrintConnectedClients();
 
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"{ex.Message}");
-                }
+                //}
+                //catch (Exception ex)
+                //{
+                //    Console.WriteLine($"{ex.Message}");
+                //}
                 await receivingStream.FlushAsync();
 
 
@@ -245,6 +245,7 @@ public class Server
                 ClientDisconnected(index); // Disconnects client
                 break;
             }
+            //Thread.Sleep(100);
         }
     }
     async Task SendingData()
@@ -261,9 +262,10 @@ public class Server
                         NetworkStream sendingStream = client.GetStream();
                         StreamReader reader = new StreamReader(sendingStream);
 
-                        //string jsonData = JsonSerializer.Serialize(dataProcessing.everyPlayersPosition, EveryPlayerPositionContext.Default.EveryPlayerPosition);
+                        string jsonData = JsonSerializer.Serialize(dataProcessing.everyPlayerPosition);
+                        //Console.WriteLine(jsonData);
 
-                        byte[] sentMessage = Encoding.ASCII.GetBytes("xd");
+                        byte[] sentMessage = Encoding.ASCII.GetBytes(jsonData);
                         await sendingStream.WriteAsync(sentMessage, 0, sentMessage.Length);
                         await sendingStream.FlushAsync();
                     }
