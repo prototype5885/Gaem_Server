@@ -1,26 +1,36 @@
-﻿//using Newtonsoft.Json;
-using System;
-using System.Net;
+﻿using System.Net;
 using System.Net.Sockets;
-using System.Reflection.PortableExecutable;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
-using System.Text.Json.Serialization;
+using System.Threading;
+using System.Timers;
+using Timer = System.Timers.Timer;
 
 
 public class Server
 {
-    TcpClient[] clients = new TcpClient[10]; // Creates thing that handles list of clients
+    int maxPlayers;
+
+    TcpClient[] clients;
     Database database = new Database(); // Creates database
-    DataProcessing dataProcessing = new DataProcessing();
-    string[] ipAddresses = new string[10]; // String array of clients' ip addresses
+    DataProcessing dataProcessing;
+    string[] ipAddresses;
 
     bool ipAuthentication = false;
 
+    public Server(int maxPlayersArg)
+    {
+        maxPlayers = maxPlayersArg;
+    }
     public void StartServer()
     {
         try
         {
+            dataProcessing = new DataProcessing(maxPlayers); // Creates object that deals with managing players and fixing received packets
+            ipAddresses = new string[maxPlayers]; // String array of clients' ip addresses
+
+            clients = new TcpClient[maxPlayers]; // Creates thing that handles list of clients
             TcpListener tcpListener = new TcpListener(IPAddress.Any, 1942); // Sets server address
             tcpListener.Start(); // Starts the server
             Task.Run(() => SendingData()); // Starts the async task that handles sending data to each client
@@ -78,7 +88,7 @@ public class Server
         Console.WriteLine("Starting authentication of client...");
         NetworkStream authenticationStream = client.GetStream();
 
-        byte[] message = new byte[128];
+        byte[] message = new byte[1024];
         int bytesRead;
 
         while (true)
@@ -192,49 +202,29 @@ public class Server
     }
     void ClientAccepted(TcpClient client, int index, string clientIpAddress)
     {
-        dataProcessing.AddNewClient(index); // Assings new client to data manager
+        dataProcessing.AddNewClientToDictionary(index); // Assings new client to dictionary managing player position
         ipAddresses[index] = clientIpAddress; // Adds the client to the array of connected clients' ip addresses
-
-        Task.Run(() => ReceivingData(client)); // Creates new async func to receive data from the new client
+        Task.Run(() => ReceivingData(client, index)); // Creates new async func to receive data from the new client
     }
-    async Task ReceivingData(TcpClient client) // One such async task is created for each client
+    async Task ReceivingData(TcpClient client, int index) // One such async task is created for each client
     {
         NetworkStream receivingStream = client.GetStream();
-        int index = Array.IndexOf(clients, client);
         while (true)
         {
             try
             {
-                byte[] receivedBytes = new byte[68];
+                byte[] receivedBytes = new byte[1024];
                 int bytesRead;
                 bytesRead = await receivingStream.ReadAsync(receivedBytes, 0, receivedBytes.Length);
                 string receivedData = Encoding.ASCII.GetString(receivedBytes, 0, bytesRead);
 
-                Console.WriteLine($"Received data: {receivedData}");
+                receivedData = dataProcessing.FixPacket(receivedData);
 
-                // some workaround so the data isnt being read duplicated
-                //int indexOfSpecificCharacter = receivedData.IndexOf("}");
-                //if (indexOfSpecificCharacter != -1)
-                //{
-                //    receivedData = receivedData.Substring(0, indexOfSpecificCharacter + 1);
-                //}
-                //else
-                //{
-                //    continue;
-                //}
-                // end of workaround
+                Player clientPlayer = JsonSerializer.Deserialize(receivedData, PlayerContext.Default.Player);
+                dataProcessing.ProcessPositionOfClients(index, clientPlayer);
+                //Console.WriteLine("X: " + clientPlayerPosition.x + ", Y: " + clientPlayerPosition.y + ", Z: " + clientPlayerPosition.z);
 
-                //try
-                //{
-                //    LocalPlayerPosition localPlayerPosition = JsonSerializer.Deserialize(receivedData, LocalPlayerPositionContext.Default.LocalPlayerPosition);
-                //    dataProcessing.ProcessData(index, localPlayerPosition);
-                //    dataProcessing.PrintConnectedClients();
 
-                //}
-                //catch (Exception ex)
-                //{
-                //    Console.WriteLine($"{ex.Message}");
-                //}
                 await receivingStream.FlushAsync();
 
 
@@ -262,7 +252,7 @@ public class Server
                         NetworkStream sendingStream = client.GetStream();
                         StreamReader reader = new StreamReader(sendingStream);
 
-                        string jsonData = JsonSerializer.Serialize(dataProcessing.everyPlayerPosition);
+                        string jsonData = JsonSerializer.Serialize(dataProcessing.players, PlayersContext.Default.Players);
                         //Console.WriteLine(jsonData);
 
                         byte[] sentMessage = Encoding.ASCII.GetBytes(jsonData);
@@ -276,9 +266,11 @@ public class Server
                     }
                 }
             }
-            Thread.Sleep(100);
+            //dataProcessing.PrintConnectedClients();
+            Thread.Sleep(1000 / 64);
         }
     }
+
     int FindSlotForClient()
     {
         {

@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "TCP_Gaem_Server": {
+      "commandName": "Project",
+      "remoteDebugEnabled": false
+    }
+  }
+}
