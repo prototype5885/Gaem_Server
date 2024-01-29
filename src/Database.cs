@@ -142,4 +142,9 @@ public class Database
             }
         }
     }
+
+    internal void UpdateLastLoginIP(string username, object clientIpAddress)
+    {
+        throw new NotImplementedException();
+    }
 }

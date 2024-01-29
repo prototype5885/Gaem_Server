@@ -18,3 +18,9 @@ internal partial class PlayerContext : JsonSerializerContext
 internal partial class PlayersContext : JsonSerializerContext
 {
 }
+
+[JsonSourceGenerationOptions(WriteIndented = true)]
+[JsonSerializable(typeof(InitialData))]
+internal partial class InitialDataContext : JsonSerializerContext
+{
+}

@@ -1,28 +1,24 @@
-﻿using System.Numerics;
+﻿using System;
+using System.Net.Sockets;
+using System.Numerics;
 using System.Text.RegularExpressions;
 
-class DataProcessing
+public class DataProcessing
 {
-    //public Player[] players;
     public Players players = new Players();
 
     public DataProcessing(int maxPlayers) // Runs in the beginning
     {
-        players.list = new List<Player>();
+        //players.list = new List<Player>();
+        players.list = new Player[maxPlayers];
     }
-    public void AddNewClientToDictionary(int serverIndex)
+    public void AddNewClientToPlayersList(int index)
     {
-        Player player = new Player();
-        players.list.Add(player);
-        //players.players[serverIndex] = new Player();
+        players.list[index] = new Player();
     }
     public void ProcessPositionOfClients(int serverIndex, Player clientPlayer) // Loops for each connected clients
     {
         players.list[serverIndex] = clientPlayer;
-        //players.players[serverIndex] = clientPlayer;
-
-        //Console.WriteLine("X: " + players.list[serverIndex].x + ", Y: " + players.list[serverIndex].y + ", Z: " + players.list[serverIndex].z);
-        //Console.WriteLine("X: " + players.players[serverIndex].x + ", Y: " + players.players[serverIndex].y + ", Z: " + players.players[serverIndex].z);
     }
     public void DeleteDisconnectedPlayer(int serverIndex)
     {
@@ -72,6 +68,32 @@ class DataProcessing
         {
             return "error";
         }
+    }
+    public int FindSlotForClient(TcpClient[] tcpClients)
+    {
+        //int i = 0;
+        //foreach (string ipAddress in clientIpAddresses)
+        //{
+        //    if (clientIpAddress == ipAddress)
+        //    {
+        //        Console.WriteLine($"Assigned index slot {i} for {clientIpAddress}");
+        //        return i;
+        //    }
+        //    i++;
+        //}
+        //Console.WriteLine($"Connection rejected for {clientIpAddress}: Maximum number of clients reached. ");
+        //return -1; // No available slot
+
+        for (int i = 0; i < tcpClients.Length; i++)
+        {
+            if (tcpClients[i] == null)
+            {
+                Console.WriteLine($"Assigned index slot {i}");
+                return i;
+            }
+        }
+        Console.WriteLine($"Connection rejected: Maximum number of clients reached. ");
+        return -1; // No available slot
     }
 }
 
