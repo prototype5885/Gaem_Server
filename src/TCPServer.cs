@@ -206,24 +206,32 @@ public class TCPServer
         dataProcessing.AddNewClientToPlayersList(index); // Assings new client to list managing player position
         tcpClients[index] = client; // Adds new client to list of tcp clients
 
+        //SendInitialData(client, index);
         SendInitialData(client, index);
 
         Task.Run(() => ReceiveDataTCP(client, index)); // Creates new async func to handle receiving data from the new client
     }
     void SendInitialData(TcpClient client, int index) // Sends the client the initial stuff
     {
-        NetworkStream sendingStream = client.GetStream();
+        try
+        {
+            NetworkStream sendingStream = client.GetStream();
 
-        InitialData initialData = new InitialData();
-        initialData.i = index; // Prepares sending client's own index to new client
-        initialData.mp = maxPlayers; // Prepares sending maxplayers amount to new client
+            InitialData initialData = new InitialData();
+            initialData.i = index; // Prepares sending client's own index to new client
+            initialData.mp = maxPlayers; // Prepares sending maxplayers amount to new client
 
-        string jsonData = JsonSerializer.Serialize(initialData, InitialDataContext.Default.InitialData);
+            string jsonData = JsonSerializer.Serialize(initialData, InitialDataContext.Default.InitialData);
+            Console.WriteLine(jsonData);
 
-        byte[] sentMessage = Encoding.ASCII.GetBytes(jsonData);
+            byte[] sentMessage = Encoding.ASCII.GetBytes(jsonData);
 
-        sendingStream.Write(sentMessage, 0, sentMessage.Length);
-        sendingStream.Flush();
+            sendingStream.Write(sentMessage, 0, sentMessage.Length);
+        }
+        catch (Exception ex)
+        {
+            Console.Out.WriteLine(ex.ToString());
+        }
     }
     async Task ReceiveDataTCP(TcpClient client, int index) // One such async task is created for each client
     {
@@ -241,8 +249,7 @@ public class TCPServer
 
                 Player clientPlayer = JsonSerializer.Deserialize(receivedData, PlayerContext.Default.Player);
                 dataProcessing.ProcessPositionOfClients(index, clientPlayer);
-                //Console.WriteLine("X: " + clientPlayerPosition.x + ", Y: " + clientPlayerPosition.y + ", Z: " + clientPlayerPosition.z);
-
+                //Console.WriteLine("X: " + clientPlayer.x + ", Y: " + clientPlayer.y + ", Z: " + clientPlayer.z);
 
                 await receivingStream.FlushAsync();
 
@@ -287,7 +294,7 @@ public class TCPServer
                 }
             }
             //dataProcessing.PrintConnectedClients();
-            Thread.Sleep(25);
+            Thread.Sleep(50);
         }
     }
     void ClientDisconnected(int index)
