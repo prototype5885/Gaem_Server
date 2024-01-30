@@ -9,46 +9,53 @@ using System.Threading;
 using System.Timers;
 
 
-public class TCPServer
+public class Server
 {
     int maxPlayers;
 
-    public TcpClient[] tcpClients; // List of TCP clients
+    // TCP
+    TcpListener tcpListener; // TCP Server
+    TcpClient[] tcpClient; // List of TCP clients
+    // TCP
+
+
 
     Database database = new Database(); // Creates database object
-
     DataProcessing dataProcessing; // Object that deals with managing players and fixing received packets
 
-    public TCPServer(int maxPlayers, DataProcessing dataProcessing)
+    public Server(int maxPlayers, DataProcessing dataProcessing)
     {
         this.maxPlayers = maxPlayers;
         this.dataProcessing = dataProcessing;
-        tcpClients = new TcpClient[maxPlayers];
 
+        StartTCPServer();
     }
     public void StartTCPServer()
     {
         try
         {
-            TcpListener tcpListener = new TcpListener(IPAddress.Any, 1942); // Sets server address
+            int port = 1942;
+            tcpListener = new TcpListener(IPAddress.Any, port); // Sets server address
+            tcpClient = new TcpClient[maxPlayers]; // Initializes array of connected clients
             tcpListener.Start(); // Starts the server
-            Console.WriteLine("TCP Server is listening on port {0}...", 1942);
+            Console.WriteLine($"TCP Server is listening on port {port}...");
 
-            Task.Run(() => WaitingForNewClients(tcpListener)); // Waiting for clients to connect
             Task.Run(() => SendDataTCP()); // Starts the async task that handles sending data to each client
+            WaitingForNewTCPClients(); // Waiting for clients to connect
         }
         catch (Exception ex)
         {
             Console.WriteLine("Server failed to start with exception: " + ex);
         }
     }
-    async Task WaitingForNewClients(TcpListener tcpListener)
+    void WaitingForNewTCPClients()
     {
         Console.WriteLine("Server started, waiting for clients to connect...");
         try
         {
             while (true)
             {
+
                 TcpClient tcpClient = tcpListener.AcceptTcpClient(); // Waits/blocks until a client has connected to the server
                 string clientIpAddress = ((IPEndPoint)tcpClient.Client.RemoteEndPoint).Address.ToString(); // Gets the IP address of the new client
                 Console.WriteLine($"Client connecting from {clientIpAddress}"); // Prints info about the new client
@@ -70,9 +77,8 @@ public class TCPServer
                 //        continue;
                 //    }
                 //}
+                Task.Run(() => Authentication(tcpClient, clientIpAddress)); // Proceeds to check the authentication of the connecting client
 
-                //Task.Run(() => Authentication(tcpClient, clientIpAddress)); // Proceeds to check the authentication of the connecting client
-                await Authentication(tcpClient, clientIpAddress);
             }
         }
         catch (SocketException ex)
@@ -177,14 +183,14 @@ public class TCPServer
     }
     void CheckForFreeSlots(TcpClient client, string username)
     {
-        IPEndPoint udpClient = (IPEndPoint)client.Client.RemoteEndPoint;
-        string clientIpAddress = (udpClient).Address.ToString(); // Gets the IP address of the accepted
+        IPEndPoint tcpEndPoint = (IPEndPoint)client.Client.RemoteEndPoint;
+        string clientIpAddress = (tcpEndPoint).Address.ToString(); // Gets the IP address of the accepted
 
         database.UpdateLastLoginIP(username, clientIpAddress);
 
         //ClientAccepted(client, iPEndPoint); // skips searching for slot
 
-        int index = dataProcessing.FindSlotForClient(tcpClients); // Find an available slot for the new client
+        int index = dataProcessing.FindSlotForClientTCP(tcpClient, client); // Find an available slot for the new client
 
         if (index != -1) // Runs if there are free slots
         {
@@ -198,7 +204,7 @@ public class TCPServer
     void ClientAccepted(TcpClient client, int index)
     {
         dataProcessing.AddNewClientToPlayersList(index); // Assings new client to list managing player position
-        tcpClients[index] = client; // Adds new client to list of tcp clients
+
 
         //SendInitialData(client, index);
         SendInitialData(client, index);
@@ -260,11 +266,11 @@ public class TCPServer
     {
         while (true)
         {
-            foreach (TcpClient client in tcpClients)
+            foreach (TcpClient client in tcpClient)
             {
                 if (client != null)
                 {
-                    int index = Array.IndexOf(tcpClients, client);
+                    int index = Array.IndexOf(tcpClient, client);
                     try
                     {
                         NetworkStream sendingStream = client.GetStream();
@@ -286,10 +292,11 @@ public class TCPServer
             Thread.Sleep(50);
         }
     }
+
     void ClientDisconnected(int index)
     {
-        tcpClients[index].Close(); // Closes connection to the client
-        tcpClients[index] = null; // Deletes it from list of clients
+        tcpClient[index].Close(); // Closes connection to the client
+        tcpClient[index] = null; // Deletes it from list of clients
         dataProcessing.DeleteDisconnectedPlayer(index); // Deletes client data from data
         Console.WriteLine($"Client index {index} has disconnected.");
     }

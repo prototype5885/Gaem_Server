@@ -1,6 +1,9 @@
 ﻿using System;
+using System.Net;
+using System.Net.Http;
 using System.Net.Sockets;
 using System.Numerics;
+using System.Reflection;
 using System.Text;
 using System.Text.RegularExpressions;
 
@@ -76,25 +79,13 @@ public class DataProcessing
             return "error";
         }
     }
-    public int FindSlotForClient(TcpClient[] tcpClients)
+    public int FindSlotForClientTCP(TcpClient[] tcpClient, TcpClient client)
     {
-        //int i = 0;
-        //foreach (string ipAddress in clientIpAddresses)
-        //{
-        //    if (clientIpAddress == ipAddress)
-        //    {
-        //        Console.WriteLine($"Assigned index slot {i} for {clientIpAddress}");
-        //        return i;
-        //    }
-        //    i++;
-        //}
-        //Console.WriteLine($"Connection rejected for {clientIpAddress}: Maximum number of clients reached. ");
-        //return -1; // No available slot
-
-        for (int i = 0; i < tcpClients.Length; i++)
+        for (int i = 0; i < tcpClient.Length; i++)
         {
-            if (tcpClients[i] == null)
+            if (tcpClient[i] == null)
             {
+                tcpClient[i] = client; // Adds new client to list of tcp clients
                 Console.WriteLine($"Assigned index slot {i}");
                 return i;
             }
@@ -102,6 +93,7 @@ public class DataProcessing
         Console.WriteLine($"Connection rejected: Maximum number of clients reached. ");
         return -1; // No available slot
     }
+
 }
 
 

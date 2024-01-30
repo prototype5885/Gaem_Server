@@ -7,12 +7,10 @@ class Program
         int maxPlayers = 4;
         DataProcessing dataProcessing = new DataProcessing(maxPlayers);
 
-        TCPServer tcpServer = new TCPServer(maxPlayers, dataProcessing);
-        tcpServer.StartTCPServer();
+        //Server server = new Server(maxPlayers, dataProcessing);
+        ServerUDP server = new ServerUDP(maxPlayers, dataProcessing);
 
-        //UDPServer udpServer = new UDPServer(maxPlayers, dataProcessing, tcpServer);
-        //udpServer.StartUDPServer();
 
-        Thread.Sleep(Timeout.Infinite);
+        //Thread.Sleep(Timeout.Infinite);
     }
 }
