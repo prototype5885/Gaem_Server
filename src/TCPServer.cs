@@ -89,25 +89,14 @@ public class TCPServer
         Console.WriteLine("Starting authentication of client...");
         NetworkStream authenticationStream = client.GetStream();
 
-        byte[] message = new byte[1024];
+        byte[] receivedBytes = new byte[1024];
         int bytesRead;
 
         while (true)
         {
-            bytesRead = 0;
-            try
-            {
-                bytesRead = await authenticationStream.ReadAsync(message, 0, message.Length); // Waits for new client to send username and password
-            }
-            catch
-            {
-                Console.WriteLine("Failed to authenticate client, most likely disconnected.");
-                break;
-            }
 
-            if (bytesRead == 0)
-                break;
-            string receivedData = Encoding.ASCII.GetString(message, 0, bytesRead); // Converts the received bytes to string
+            bytesRead = await authenticationStream.ReadAsync(receivedBytes, 0, receivedBytes.Length); // Waits for new client to send username and password
+            string receivedData = dataProcessing.ByteToStringWithFix(receivedBytes, bytesRead); // Converts byte to string and tries to fix if multiple packets were read as one
 
             // Converts received json format data to username and password
             LoginData loginData;
@@ -133,8 +122,9 @@ public class TCPServer
                     Console.WriteLine("Login of client successful");
 
                     // Send a response back to the client
-                    byte[] data = Encoding.ASCII.GetBytes("1"); // Response 1 means the username/password were accepted
-                    await authenticationStream.WriteAsync(data, 0, data.Length);
+                    string response = "1"; // Response 1 means the username/password were accepted
+                    byte[] messageByte = Encoding.ASCII.GetBytes($"#{response.Length}#" + response); // Adds the length of the message
+                    await authenticationStream.WriteAsync(messageByte, 0, messageByte.Length);
 
                     // Accepts connection
                     CheckForFreeSlots(client, username);
@@ -142,11 +132,12 @@ public class TCPServer
                 }
                 else // Rejects
                 {
-                    Console.WriteLine("User entered wrong username or password");
+                    Console.WriteLine("Client entered wrong username or password");
 
                     // Send a response back to the client
-                    byte[] data = Encoding.ASCII.GetBytes("0"); // Response 0 means the username/password were rejected
-                    await authenticationStream.WriteAsync(data, 0, data.Length);
+                    string response = "2"; // Response 2 means the username/password were rejected
+                    byte[] messageByte = Encoding.ASCII.GetBytes($"#{response.Length}#" + response); // Adds the length of the message
+                    await authenticationStream.WriteAsync(messageByte, 0, messageByte.Length);
 
                     // Rejects connection
                     await authenticationStream.FlushAsync();
@@ -159,14 +150,16 @@ public class TCPServer
                 if (username.Length > 16) // Checks if username is longer than 16 characters
                 {
                     Console.WriteLine("Client's chosen username is too long");
-                    byte[] data = Encoding.ASCII.GetBytes("2"); // Response to client, 2 means username is too long
-                    await authenticationStream.WriteAsync(data, 0, data.Length);
+                    string response = "2"; // Response 2 means username is too long
+                    byte[] messageByte = Encoding.ASCII.GetBytes($"#{response.Length}#" + response); // Adds the length of the message
+                    await authenticationStream.WriteAsync(messageByte, 0, messageByte.Length);
                 }
                 else if (database.RegisterUser(username, hashedPassword, clientIpAddress)) // Runs if registration was succesful
                 {
                     Console.WriteLine("Registration of client was successful");
-                    byte[] data = Encoding.ASCII.GetBytes("1"); // Response to client, 1 means registration was successful
-                    await authenticationStream.WriteAsync(data, 0, data.Length);
+                    string response = "1"; // Response 1 means registration was successful
+                    byte[] messageByte = Encoding.ASCII.GetBytes($"#{response.Length}#" + response); // Adds the length of the message
+                    await authenticationStream.WriteAsync(messageByte, 0, messageByte.Length);
 
                     CheckForFreeSlots(client, username);
                     break;
@@ -174,8 +167,9 @@ public class TCPServer
                 else
                 {
                     Console.WriteLine("Client's chosen username is already taken");
-                    byte[] data = Encoding.ASCII.GetBytes("3"); // Response to client, 3 means username is already taken
-                    await authenticationStream.WriteAsync(data, 0, data.Length);
+                    string response = "3"; // Response 3 means username is already taken
+                    byte[] messageByte = Encoding.ASCII.GetBytes($"#{response.Length}#" + response); // Adds the length of the message
+                    await authenticationStream.WriteAsync(messageByte, 0, messageByte.Length);
                 }
             }
             await authenticationStream.FlushAsync();
@@ -222,11 +216,10 @@ public class TCPServer
             initialData.mp = maxPlayers; // Prepares sending maxplayers amount to new client
 
             string jsonData = JsonSerializer.Serialize(initialData, InitialDataContext.Default.InitialData);
-            Console.WriteLine(jsonData);
+            byte[] messageByte = Encoding.ASCII.GetBytes($"#{jsonData.Length}#" + jsonData); // Adds the length of the message
+            sendingStream.Write(messageByte, 0, messageByte.Length);
 
-            byte[] sentMessage = Encoding.ASCII.GetBytes(jsonData);
 
-            sendingStream.Write(sentMessage, 0, sentMessage.Length);
         }
         catch (Exception ex)
         {
@@ -243,15 +236,13 @@ public class TCPServer
                 byte[] receivedBytes = new byte[1024];
                 int bytesRead;
                 bytesRead = await receivingStream.ReadAsync(receivedBytes, 0, receivedBytes.Length);
-                string receivedData = Encoding.ASCII.GetString(receivedBytes, 0, bytesRead);
-
-                receivedData = dataProcessing.FixPacket(receivedData);
+                string receivedData = dataProcessing.ByteToStringWithFix(receivedBytes, bytesRead); // Converts byte to string and tries to fix if multiple packets were read as one
 
                 Player clientPlayer = JsonSerializer.Deserialize(receivedData, PlayerContext.Default.Player);
                 dataProcessing.ProcessPositionOfClients(index, clientPlayer);
                 //Console.WriteLine("X: " + clientPlayer.x + ", Y: " + clientPlayer.y + ", Z: " + clientPlayer.z);
 
-                await receivingStream.FlushAsync();
+                //await receivingStream.FlushAsync();
 
 
             }
@@ -280,11 +271,9 @@ public class TCPServer
                         StreamReader reader = new StreamReader(sendingStream);
 
                         string jsonData = JsonSerializer.Serialize(dataProcessing.players, PlayersContext.Default.Players);
-                        //Console.WriteLine(jsonData);
-
-                        byte[] sentMessage = Encoding.ASCII.GetBytes(jsonData);
-                        await sendingStream.WriteAsync(sentMessage, 0, sentMessage.Length);
-                        await sendingStream.FlushAsync();
+                        byte[] messageByte = Encoding.ASCII.GetBytes($"#{jsonData.Length}#" + jsonData); // Adds the length to the beginning of message
+                        await sendingStream.WriteAsync(messageByte, 0, messageByte.Length);
+                        //await sendingStream.FlushAsync();
                     }
                     catch (Exception ex)
                     {

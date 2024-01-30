@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Net.Sockets;
 using System.Numerics;
+using System.Text;
 using System.Text.RegularExpressions;
 
 public class DataProcessing
@@ -38,7 +39,13 @@ public class DataProcessing
             }
         }
     }
-    public string FixPacket(string receivedData)
+    public string ByteToStringWithFix(byte[] receivedBytes, int bytesRead)
+    {
+        string receivedData = Encoding.ASCII.GetString(receivedBytes, 0, bytesRead);
+        receivedData = FixPacket(receivedData);
+        return receivedData;
+    }
+    string FixPacket(string receivedData)
     {
         //string pattern = @"#(.*?)#";
         string pattern = @"#(.*)#";
