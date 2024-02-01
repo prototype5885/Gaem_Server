@@ -70,9 +70,7 @@ public class ServerUDP
                     case 3: // If client sends its own position
                         Player clientPlayer = JsonSerializer.Deserialize(packet.packetString, PlayerContext.Default.Player);
 
-                        Console.WriteLine(clientPlayer.ToString());
                         foreach (IPEndPoint clientAddress in connectedUdpClient)
-
                         {
                             if (clientAddress != null)
                             {
@@ -80,7 +78,7 @@ public class ServerUDP
 
                                 if (udpReceiveResult.RemoteEndPoint.Equals(connectedUdpClient[index]))
                                 {
-                                    await Console.Out.WriteLineAsync(clientPlayer.y.ToString());
+                                    Console.WriteLine(clientPlayer.ToString());
                                     dataProcessing.ProcessPositionOfClients(index, clientPlayer);
                                 }
                             }
@@ -117,7 +115,7 @@ public class ServerUDP
             }
             //dataProcessing.PrintConnectedClients();
 
-            Thread.Sleep(50);
+            Thread.Sleep(10);
         }
     }
     async Task Authentication(string packetString, IPEndPoint clientAddress) // Authenticate the client

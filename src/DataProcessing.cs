@@ -23,7 +23,6 @@ public class DataProcessing
     }
     public void ProcessPositionOfClients(int serverIndex, Player clientPlayer) // Loops for each connected clients
     {
-        Console.WriteLine(clientPlayer.y);
         players.list[serverIndex] = clientPlayer;
     }
     public void DeleteDisconnectedPlayer(int serverIndex)
