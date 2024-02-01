@@ -9,7 +9,7 @@ using System.Threading;
 using System.Timers;
 
 
-public class Server
+public class ServerTCP
 {
     int maxPlayers;
 
@@ -23,7 +23,7 @@ public class Server
     Database database = new Database(); // Creates database object
     DataProcessing dataProcessing; // Object that deals with managing players and fixing received packets
 
-    public Server(int maxPlayers, DataProcessing dataProcessing)
+    public ServerTCP(int maxPlayers, DataProcessing dataProcessing)
     {
         this.maxPlayers = maxPlayers;
         this.dataProcessing = dataProcessing;

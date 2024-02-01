@@ -11,6 +11,6 @@ class Program
         ServerUDP server = new ServerUDP(maxPlayers, dataProcessing);
 
 
-        //Thread.Sleep(Timeout.Infinite);
+        Thread.Sleep(Timeout.Infinite);
     }
 }
