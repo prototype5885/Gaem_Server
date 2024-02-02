@@ -36,6 +36,6 @@ public class InitialData
 }
 public class Packet
 {
-    public int packetType { get; set; }
-    public string packetString { get; set; }
+    public int type { get; set; }
+    public string data { get; set; }
 }

@@ -6,9 +6,9 @@ class Program
     {
         int maxPlayers = 4;
         DataProcessing dataProcessing = new DataProcessing(maxPlayers);
+        PacketProcessing packetProcessing = new PacketProcessing();
 
-        //Server server = new Server(maxPlayers, dataProcessing);
-        ServerUDP server = new ServerUDP(maxPlayers, dataProcessing);
+        ServerUDP server = new ServerUDP(maxPlayers, dataProcessing, packetProcessing);
 
 
         Thread.Sleep(Timeout.Infinite);

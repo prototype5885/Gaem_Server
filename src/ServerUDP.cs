@@ -3,39 +3,46 @@ using System.Net;
 using System.Text;
 
 using System.Text.Json;
+using System.Net.Http.Headers;
 
 public class ServerUDP
 {
-    int maxPlayers;
+    private int maxPlayers;
 
-    UdpClient udpClient;
-    IPEndPoint[] connectedUdpClient;
+    private UdpClient udpClient;
+    private IPEndPoint[] connectedUdpClient;
 
-    DataProcessing dataProcessing;
+    private DataProcessing dataProcessing;
 
-    Database database = new Database(); // Creates database object
+    private Database database = new Database(); // Creates database object
+    private PacketProcessing packetProcessing;
 
-    public ServerUDP(int maxPlayers, DataProcessing dataProcessing)
+    private bool[] clientPingedBack; // keeps track of which clients pinged or did not ping back
+
+    public ServerUDP(int maxPlayers, DataProcessing dataProcessing, PacketProcessing packetProcessing)
     {
         this.maxPlayers = maxPlayers;
         this.dataProcessing = dataProcessing;
+        this.packetProcessing = packetProcessing;
 
-        StartUDPServer();
+        StartUdpServer();
     }
 
-    public void StartUDPServer()
+    private void StartUdpServer()
     {
         try
         {
-            int port = 1943;
+            const int port = 1943;
             udpClient = new UdpClient(port);
 
             connectedUdpClient = new IPEndPoint[maxPlayers];
+            clientPingedBack = new bool[maxPlayers];
 
             Console.WriteLine($"UDP Server is listening on port {port}...");
 
-            Task.Run(() => ReceiveDataUDP());
-            Task.Run(() => SendDataUDP());
+            Task.Run(ReceiveDataUdp);
+            Task.Run(SendDataUdp);
+            Task.Run(PingClients);
 
         }
         catch (Exception ex)
@@ -44,17 +51,24 @@ public class ServerUDP
         }
     }
 
-    async Task ReceiveDataUDP()
+    private async Task ReceiveDataUdp()
     {
         while (true)
         {
             UdpReceiveResult udpReceiveResult = await udpClient.ReceiveAsync();
-            Packet packet = dataProcessing.BreakUpPacket(udpReceiveResult.Buffer);
+
+            Packet packet = packetProcessing.BreakUpPacket(udpReceiveResult.Buffer);
 
             try
             {
-                switch (packet.packetType)
+                switch (packet.type)
                 {
+                    case 0: // Client answers the ping
+                        await Console.Out.WriteLineAsync($"A client from {udpReceiveResult.RemoteEndPoint} answered the ping");
+                        int index = Array.IndexOf(connectedUdpClient, udpReceiveResult.RemoteEndPoint); // gets the index of client who pinged back
+
+                        //clientPingedBack[index] = true;
+                        break;
                     case 1: // If client wants to connect
 
                         await Console.Out.WriteLineAsync($"A client from {udpReceiveResult.RemoteEndPoint} is connecting");
@@ -64,22 +78,20 @@ public class ServerUDP
 
                     case 2: // If client wants to login/register
                         await Console.Out.WriteLineAsync($"A client from {udpReceiveResult.RemoteEndPoint} is trying to login or register");
-                        await Authentication(packet.packetString, udpReceiveResult.RemoteEndPoint);
+                        await Authentication(packet.data, udpReceiveResult.RemoteEndPoint);
                         break;
 
                     case 3: // If client sends its own position
-                        Player clientPlayer = JsonSerializer.Deserialize(packet.packetString, PlayerContext.Default.Player);
+                        Player clientPlayer = JsonSerializer.Deserialize(packet.data, PlayerContext.Default.Player);
 
                         foreach (IPEndPoint clientAddress in connectedUdpClient)
                         {
                             if (clientAddress != null)
                             {
-                                int index = Array.IndexOf(connectedUdpClient, clientAddress);
-
-                                if (udpReceiveResult.RemoteEndPoint.Equals(connectedUdpClient[index]))
+                                int clientIndex = Array.IndexOf(connectedUdpClient, clientAddress);
+                                if (udpReceiveResult.RemoteEndPoint.Equals(connectedUdpClient[clientIndex]))
                                 {
-                                    Console.WriteLine(clientPlayer.ToString());
-                                    dataProcessing.ProcessPositionOfClients(index, clientPlayer);
+                                    dataProcessing.ProcessPositionOfClients(clientIndex, clientPlayer);
                                 }
                             }
                         }
@@ -92,7 +104,7 @@ public class ServerUDP
             }
         }
     }
-    async Task SendDataUDP()
+    private async Task SendDataUdp()
     {
         while (true)
         {
@@ -104,7 +116,8 @@ public class ServerUDP
                     try
                     {
                         string jsonData = JsonSerializer.Serialize(dataProcessing.players, PlayersContext.Default.Players);
-                        byte[] messageByte = Encoding.ASCII.GetBytes(jsonData); // Adds the length to the beginning of message
+                        int commandType = 4; // Type 4 means server is sending position of other players
+                        byte[] messageByte = Encoding.ASCII.GetBytes($"#{commandType}#{jsonData}");
                         await udpClient.SendAsync(messageByte, messageByte.Length, clientAddress);
                     }
                     catch (Exception ex)
@@ -118,7 +131,39 @@ public class ServerUDP
             Thread.Sleep(10);
         }
     }
-    async Task Authentication(string packetString, IPEndPoint clientAddress) // Authenticate the client
+    private async Task PingClients()
+    {
+        IPEndPoint clientAddress;
+        while (true)
+        {
+            for (int index = 0; index < maxPlayers; index++)
+            {
+                clientAddress = connectedUdpClient[index];
+                if (clientAddress != null)
+                {
+                    //Console.WriteLine(clientAddress);
+
+                    //if (clientPingedBack[index] == false)
+                    //{
+                    //    //Console.WriteLine("index: " + index);
+                    //    //Console.WriteLine("length: " + connectedUdpClient.Length);
+                    //    //connectedUdpClient[index].Addr;
+                    //    Console.WriteLine($"Client {connectedUdpClient[index]} did not answer");
+                    //    connectedUdpClient[index] = null;
+                    //}
+                    //clientPingedBack[index] = false; // resets the array
+
+                    int commandType = 0; // Type 0 means pinging
+                    byte[] messageByte = Encoding.ASCII.GetBytes($"#{commandType}#");
+                    await udpClient.SendAsync(messageByte, messageByte.Length, clientAddress);
+
+                }
+            }
+
+            Thread.Sleep(1000);
+        }
+    }
+    private async Task Authentication(string packetString, IPEndPoint clientAddress) // Authenticate the client
     {
         Console.WriteLine("Starting authentication of client...");
 
@@ -199,7 +244,7 @@ public class ServerUDP
 
         database.UpdateLastLoginIP(username, clientIpAddress);
 
-        int index = dataProcessing.FindSlotForClientUDP(connectedUdpClient, clientAddress); // Find an available slot for the new client
+        int index = dataProcessing.FindSlotForClientUdp(connectedUdpClient, clientAddress); // Find an available slot for the new client
 
         if (index != -1) // Runs if there are free slots
         {
