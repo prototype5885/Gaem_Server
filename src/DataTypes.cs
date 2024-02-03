@@ -27,7 +27,7 @@ public class Player
 }
 public class Players
 {
-    public Player[] list { get; set; }
+    public Player[] arrayOfPlayersData { get; set; }
 }
 public class InitialData
 {
@@ -38,4 +38,31 @@ public class Packet
 {
     public int type { get; set; }
     public string data { get; set; }
+}
+public class CompleteClientInfo
+{
+    public IPEndPoint IPEndPoint { get; set; }
+    public int status { get; set; }
+    public int clientindex { get; set; }
+    public bool pingAnswered { get; set; }
+    public int timeUntillTimeout { get; set; }
+    public Vector3 position { get; set; }
+
+    public override string ToString()
+    {
+        string statusMessage = string.Empty;
+        switch (status)
+        {
+            case 0:
+                statusMessage = "Login";
+                break;
+            case 1:
+                statusMessage = "Ingame";
+                break;
+            case 2:
+                statusMessage = "Timing out";
+                break;
+        }
+        return $"Address: {IPEndPoint}, Statuus: {statusMessage}, Index: {clientindex}, Ping answered: {pingAnswered}, Timeout in: {timeUntillTimeout}, Position: {position}";
+    }
 }
