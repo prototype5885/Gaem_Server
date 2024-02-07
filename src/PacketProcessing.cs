@@ -36,9 +36,9 @@ public class PacketProcessing
     {
         sentPackets.Remove(message);
     }
-    public Packet BreakUpPacket(byte[] receivedBytes)
+    public Packet BreakUpPacket(byte[] receivedBytes, int byteLength)
     {
-        string rawPacketString = Encoding.ASCII.GetString(receivedBytes, 0, receivedBytes.Length);
+        string rawPacketString = Encoding.ASCII.GetString(receivedBytes, 0, byteLength);
 
         Packet packet = new Packet();
 

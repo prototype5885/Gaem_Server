@@ -10,24 +10,24 @@ public class LoginData
     public string un { get; set; } // Username
     public string pw { get; set; } // Password
 }
-public class Player
+public class PlayerPosition
 {
     public float x { get; set; } // Player position X
     public float y { get; set; } // Player position Y
     public float z { get; set; } // Player position Z
 
     public float rx { get; set; } // Player head rotation X
-    public float ry { get; set; } // Player head rotation Y
-    public float rz { get; set; } // Player head rotation Z
+    public float ry { get; set; } // Player body rotation Y
+
 
     public override string ToString()
     {
-        return $"X:{x}, Y:{y}, Z:{z}, rX:{rx}, rY:{ry}, rZ:{rz}";
+        return $"{(int)x}, {(int)y}, {(int)z}";
     }
 }
-public class Players
+public class EveryPlayersPosition
 {
-    public Player[] arrayOfPlayersData { get; set; }
+    public PlayerPosition[] positions { get; set; }
 }
 public class InitialData
 {
@@ -39,14 +39,23 @@ public class Packet
     public int type { get; set; }
     public string data { get; set; }
 }
-public class CompleteClientInfo
+public class ConnecetedPlayer
 {
-    public IPEndPoint IPEndPoint { get; set; }
+    public int index { get; set; }
+    public int databaseID { get; set; }
+    public EndPoint address { get; set; }
     public int status { get; set; }
-    public int clientindex { get; set; }
+
     public bool pingAnswered { get; set; }
     public int timeUntillTimeout { get; set; }
-    public Vector3 position { get; set; }
+    public PlayerPosition position { get; set; }
+
+    public ConnecetedPlayer()
+    {
+        databaseID = -1;
+        pingAnswered = true;
+        timeUntillTimeout = 4;
+    }
 
     public override string ToString()
     {
@@ -63,6 +72,6 @@ public class CompleteClientInfo
                 statusMessage = "Timing out";
                 break;
         }
-        return $"Address: {IPEndPoint}, Statuus: {statusMessage}, Index: {clientindex}, Ping answered: {pingAnswered}, Timeout in: {timeUntillTimeout}, Position: {position}";
+        return $"Address: {address} | Index: {index} | Status: {statusMessage} | Ping answered: {pingAnswered} | Timeout in: {timeUntillTimeout} | Position XYZ: {position}";
     }
 }

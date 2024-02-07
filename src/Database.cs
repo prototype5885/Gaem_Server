@@ -1,13 +1,14 @@
 ﻿using Microsoft.Data.Sqlite;
+using System.Linq;
 using System.Reflection.Metadata.Ecma335;
 
 public class Database
 {
-    SqliteConnection dbConnection;
+    private SqliteConnection dbConnection;
 
 
 
-    PasswordHasher passwordHasher = new PasswordHasher();
+    private static readonly PasswordHasher passwordHasher = new PasswordHasher();
     public Database()
     {
         // Open the connection
@@ -42,7 +43,7 @@ public class Database
     }
     public bool RegisterUser(string username, string hashedPassword, string LastLoginIPAddress)
     {
-        if (!SearchIfUserExists(username)) // Runs if the chosen username isnt taken yet
+        if (!CheckIfUserExists(username)) // Runs if the chosen username isnt taken yet
         {
             using (SqliteCommand command = new SqliteCommand("INSERT INTO Players (Username, Password, LastLoginIP, Wage, Money) VALUES (@username, @password, @lastloginip, @wage, @money);", dbConnection))
             {
@@ -53,6 +54,7 @@ public class Database
                 command.Parameters.AddWithValue("@money", 1000);
 
                 command.ExecuteNonQuery();
+
                 return true;
             }
         }
@@ -73,13 +75,11 @@ public class Database
                 {
                     if (passwordHasher.VerifyPassword(hashedPassword, $"{reader["Password"]}")) // Checks if passwords matches using bcrypt
                     {
-                        Console.WriteLine("Login was correct");
-                        return true;
+                        return true; // Login was correct
                     }
                     else
                     {
-                        Console.WriteLine("Login was fail");
-                        return false;
+                        return false; // Login failed
                     }
                 }
                 else // No user registered with this username
@@ -107,11 +107,7 @@ public class Database
             command.ExecuteNonQuery();
         }
     }
-    public void GetUserDataFromDatabase()
-    {
-
-    }
-    public bool SearchIfUserExists(string username)
+    private bool CheckIfUserExists(string username)
     {
         using (SqliteCommand command = new SqliteCommand("SELECT * FROM Players WHERE Username = @username", dbConnection))
         {
@@ -121,6 +117,25 @@ public class Database
             {
                 if (reader.Read()) { return true; } // User found
                 else { return false; } // User not found
+            }
+        }
+    }
+    public int GetUserID(string username)
+    {
+        using (SqliteCommand command = new SqliteCommand("SELECT * FROM Players WHERE Username = @username", dbConnection))
+        {
+            command.Parameters.AddWithValue("@username", username);
+
+            using (SqliteDataReader reader = command.ExecuteReader())
+            {
+                if (reader.Read())
+                {
+                    return reader.GetInt32(0);
+                }
+                else
+                {
+                    return -1;
+                }
             }
         }
     }

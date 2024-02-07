@@ -1,15 +1,11 @@
-﻿
 class Program
 {
-
-    static void Main(string[] args)
+    private static void Main()
     {
-        int maxPlayers = 2;
-        PacketProcessing packetProcessing = new PacketProcessing();
-
-        ServerUDP server = new ServerUDP(maxPlayers, packetProcessing);
-
-
-        Thread.Sleep(Timeout.Infinite);
+        int maxPlayers = 10;
+        int port = 1943;
+        Server server = new Server();
+        server.StartUdpServer(maxPlayers, port);
+        // Thread.Sleep(Timeout.Infinite);
     }
 }
