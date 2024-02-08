@@ -48,12 +48,6 @@ public class Server
             //connectedPlayers[i] = new ClientInfo();
         }
 
-
-
-        //playerPositionAll.positions = new PlayerPosition[maxPlayers];
-
-        //Console.WriteLine($"UDP Server is listening on port {port}...");
-
         Task.Run(() => PingClients());
         Task.Run(() => ReceiveDataUdp());
         SendDataUdp();
@@ -64,10 +58,12 @@ public class Server
         {
             try
             {
-                byte[] buffer = new byte[256];
+                byte[] buffer = new byte[512];
                 EndPoint clientEndPoint = new IPEndPoint(IPAddress.Any, 0);
                 SocketReceiveFromResult receivedData = await socket.ReceiveFromAsync(buffer, SocketFlags.None, clientEndPoint);
                 Packet packet = packetProcessing.BreakUpPacket(buffer, receivedData.ReceivedBytes); // Processes the received packet
+
+                // await Console.Out.WriteLineAsync(packet.data);
 
                 if (packet == null) continue; // Stops if packet can't be processed
 
@@ -76,45 +72,52 @@ public class Server
                 // Runs if new client wants to connect
                 if (packet.type == 1)
                 {
-                    //Console.WriteLine($"A client from {clientAddress} is trying to login or register");
                     int loginResult = Authentication(packet, clientAddress);
 
                     int commandType = 1; // Type 1 means server responds to client if login/register was fail or not
                     byte[] messageByte = Encoding.ASCII.GetBytes($"#{commandType}#{loginResult}");
                     await socket.SendToAsync(messageByte, SocketFlags.None, clientAddress);
 
-                    if (loginResult == 1) // Search free slot for new client if login was successfull
+                    switch (loginResult)
                     {
-                        for (int index = 0; index < maxPlayers; index++)
-                        {
-                            if (clientSlotTaken[index] == false)
+                        case 1:
+                            for (int index = 0; index < maxPlayers; index++)
                             {
-                                clientSlotTaken[index] = true; // New client will take found the empty slot 
-                                //Console.WriteLine($"Adding {clientAddress} client to slot {index}");
-
-                                connectedPlayers[index] = new ConnecetedPlayer
+                                if (clientSlotTaken[index] == false)
                                 {
-                                    index = index,
-                                    address = clientAddress
-                                };
+                                    clientSlotTaken[index] = true; // New client will take found the empty slot 
 
-                                Console.WriteLine($"Assigned index slot {index}");
 
-                                InitialData initialData = new InitialData
-                                {
-                                    i = index, // Prepares sending client's own index to new client
-                                    mp = maxPlayers // Prepares sending max players amount to new client
-                                };
+                                    connectedPlayers[index] = new ConnecetedPlayer
+                                    {
+                                        index = index,
+                                        databaseID = database.loggedInIds[clientAddress.ToString()],
+                                        address = clientAddress
+                                    };
+                                    connectedPlayers[index].playerName = database.GetUsername(connectedPlayers[index].databaseID);
 
-                                string jsonData = JsonSerializer.Serialize(initialData, InitialDataContext.Default.InitialData);
 
-                                int replyCommandType = 2; // Type 2 means servers sends initial data to the new client
-                                byte[] replyMessageByte = Encoding.ASCII.GetBytes($"#{replyCommandType}#{jsonData}");
-                                await socket.SendToAsync(replyMessageByte, clientAddress);
-                                break;
+                                    Console.WriteLine($"Assigned index slot {index}");
+
+                                    InitialData initialData = new InitialData
+                                    {
+                                        i = index, // Prepares sending client's own index to new client
+                                        mp = maxPlayers // Prepares sending max players amount to new client
+                                    };
+
+                                    string jsonData = JsonSerializer.Serialize(initialData, InitialDataContext.Default.InitialData);
+
+                                    int replyCommandType = 2; // Type 2 means servers sends initial data to the new client
+                                    byte[] replyMessageByte = Encoding.ASCII.GetBytes($"#{replyCommandType}#{jsonData}");
+                                    await socket.SendToAsync(replyMessageByte, clientAddress);
+                                    break;
+                                }
+                                Console.WriteLine("Server is full");
                             }
-                            Console.WriteLine("Server is full");
-                        }
+                            break;
+                        case 2: // wrong username or password
+
+                            break;
                     }
                 }
 
@@ -187,7 +190,7 @@ public class Server
 
         while (true)
         {
-            //MonitorValues();
+            MonitorValues();
             for (int i = 0; i < maxPlayers; i++)
             {
                 if (connectedPlayers[i] == null) continue;
@@ -269,38 +272,30 @@ public class Server
 
         if (loginOrRegister == true) // Runs if client wants to login
         {
-            if (database.LoginUser(username, hashedPassword)) // Checks if username and password exists in the database
+            byte loginResult = database.LoginUser(username, hashedPassword, clientAddress.ToString()); // Try to login the user
+            switch (loginResult)
             {
-                int databaseUserID = database.GetUserID(username);
-
-                for (int i = 0; i < maxPlayers; i++)
-                {
-                    if (connectedPlayers[i].databaseID != -1 && connectedPlayers[i].databaseID == databaseUserID)
-                    {
-                        Console.WriteLine("User is already logged in");
-                        return 2; // User is already logged in
-                    }
-                    else
-                    {
-                        Console.WriteLine("Login was accepted");
-                        connectedPlayers[i].databaseID = databaseUserID;
-                        return 1; // 1 means the username/password were accepted
-                    }
-                }
-                return 2;
+                case 1:
+                    Console.WriteLine("Login was accepted");
+                    return 1;
+                case 2:
+                    Console.WriteLine("Client entered wrong username or password");
+                    return 2;
+                case 3:
+                    Console.WriteLine("No user was found with this name");
+                    return 3;
+                case 4:
+                    Console.WriteLine("This user is already logged in");
+                    return 4;
             }
-            else // Rejects
-            {
-                Console.WriteLine("Client entered wrong username or password");
-                return 2; // 2 means the username/password were rejected
-            }
+            return -1;
         }
         else // Runs if client wants to register
         {
-            if (username.Length > 16) // Checks if username is longer than 16 characters
+            if (username.Length < 2 || username.Length > 16) // Checks if username is longer than 16 or shorter than 2 characters
             {
-                Console.WriteLine("Client's chosen username is too long");
-                return 2; // 2 means username is too long
+                Console.WriteLine("Client's chosen username is too long or too short");
+                return 5; // 5 means username is too long or too short
             }
             else if (database.RegisterUser(username, hashedPassword, clientAddress.ToString())) // Runs if registration was successful
             {
@@ -310,7 +305,7 @@ public class Server
             else
             {
                 Console.WriteLine("Client's chosen username is already taken");
-                return 3; // 3 means username is already taken
+                return 6; // 6 means username is already taken
             }
         }
     }

@@ -39,10 +39,16 @@ public class Packet
     public int type { get; set; }
     public string data { get; set; }
 }
+public class PlayerName()
+{
+    public int index { get; set; }
+    public string name { get; set; }
+}
 public class ConnecetedPlayer
 {
     public int index { get; set; }
     public int databaseID { get; set; }
+    public string playerName { get; set; }
     public EndPoint address { get; set; }
     public int status { get; set; }
 
@@ -72,6 +78,6 @@ public class ConnecetedPlayer
                 statusMessage = "Timing out";
                 break;
         }
-        return $"Address: {address} | Index: {index} | Status: {statusMessage} | Ping answered: {pingAnswered} | Timeout in: {timeUntillTimeout} | Position XYZ: {position}";
+        return $"Addr: {address} | Slot: {index} | db id: {databaseID} | Name: {playerName} | Status: {statusMessage} | Ping answered: {pingAnswered} | Timeout in: {timeUntillTimeout} | Pos XYZ: {position}";
     }
 }

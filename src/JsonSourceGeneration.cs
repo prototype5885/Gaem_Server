@@ -24,3 +24,9 @@ internal partial class EveryPlayersPositionContext : JsonSerializerContext
 internal partial class InitialDataContext : JsonSerializerContext
 {
 }
+
+[JsonSourceGenerationOptions(WriteIndented = false)]
+[JsonSerializable(typeof(PlayerName))]
+internal partial class PlayerNameContext : JsonSerializerContext
+{
+}
