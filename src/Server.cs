@@ -14,17 +14,19 @@ public class Server
     private int maxPlayers;
 
     private static IPEndPoint serverAddress;
+    private int serverPort;
     private static Socket socket;
 
     private static readonly Database database = new Database(); // Creates database object
-    private static readonly PacketProcessing packetProcessing = new PacketProcessing();
 
     private static bool[] clientSlotTaken;
     private static ConnecetedPlayer[] connectedPlayers;
+    //private static EveryPlayersName everyPlayersName = new EveryPlayersName();
 
     public void StartUdpServer(int maxPlayers, int port)
     {
-        serverAddress = new IPEndPoint(IPAddress.Any, port);
+        serverPort = port;
+        serverAddress = new IPEndPoint(IPAddress.Any, serverPort);
         socket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
         socket.Bind(serverAddress);
 
@@ -41,19 +43,21 @@ public class Server
         this.maxPlayers = maxPlayers;
         clientSlotTaken = new bool[maxPlayers];
         connectedPlayers = new ConnecetedPlayer[maxPlayers];
+        //everyPlayersName.playerIndex = new int[maxPlayers];
+        //everyPlayersName.playerNames = new string[maxPlayers];
 
         for (int i = 0; i < maxPlayers; i++)
         {
             clientSlotTaken[i] = false;
-            //connectedPlayers[i] = new ClientInfo();
         }
 
-        Task.Run(() => PingClients());
+        Task.Run(() => RunEverySecond());
         Task.Run(() => ReceiveDataUdp());
         SendDataUdp();
     }
     private async Task ReceiveDataUdp()
     {
+        PacketProcessing packetProcessing = new PacketProcessing();
         while (true)
         {
             try
@@ -61,6 +65,7 @@ public class Server
                 byte[] buffer = new byte[512];
                 EndPoint clientEndPoint = new IPEndPoint(IPAddress.Any, 0);
                 SocketReceiveFromResult receivedData = await socket.ReceiveFromAsync(buffer, SocketFlags.None, clientEndPoint);
+
                 Packet packet = packetProcessing.BreakUpPacket(buffer, receivedData.ReceivedBytes); // Processes the received packet
 
                 // await Console.Out.WriteLineAsync(packet.data);
@@ -109,7 +114,7 @@ public class Server
 
                                     int replyCommandType = 2; // Type 2 means servers sends initial data to the new client
                                     byte[] replyMessageByte = Encoding.ASCII.GetBytes($"#{replyCommandType}#{jsonData}");
-                                    await socket.SendToAsync(replyMessageByte, clientAddress);
+                                    await socket.SendToAsync(replyMessageByte, SocketFlags.None, clientAddress);
                                     break;
                                 }
                                 Console.WriteLine("Server is full");
@@ -136,6 +141,8 @@ public class Server
                 {
                     case 0: // Type 0 means client answers the ping
                         connectedPlayers[clientIndex].pingAnswered = true;
+                        connectedPlayers[clientIndex].status = 1;
+                        CalculatePlayerLatency(clientIndex);
                         break;
                     case 3: // Type 3 means client is sending its own position to the server
                         PlayerPosition clientPlayerPosition = JsonSerializer.Deserialize(packet.data, PlayerPositionContext.Default.PlayerPosition);
@@ -184,72 +191,100 @@ public class Server
             Thread.Sleep(10); // server tick, 100 times a second
         }
     }
-    private async Task PingClients()
+    private async Task RunEverySecond()
     {
-        const int timeoutTime = 4;
+        const byte timeoutTime = 10;
 
         while (true)
         {
             MonitorValues();
-            for (int i = 0; i < maxPlayers; i++)
-            {
-                if (connectedPlayers[i] == null) continue;
-                if (connectedPlayers[i].pingAnswered == false) // runs if connected client hasn't replied to ping
-                {
-                    connectedPlayers[i].timeUntillTimeout--;
-                    // Console.WriteLine($"Index {client.clientindex} player will timeout in: {client.timeUntillTimeout} seconds");
-
-                    if (connectedPlayers[i].timeUntillTimeout < 1) // runs if client didnt answer during timeout interval
-                    {
-                        DisconnectClient(connectedPlayers[i].index);
-                        continue;
-                    }
-                }
-                else if (connectedPlayers[i].pingAnswered == true && connectedPlayers[i].timeUntillTimeout != timeoutTime) // runs if connected client answered the ping
-                {
-                    //Console.WriteLine($"Timeout timer was reset for index {i} player");
-                    connectedPlayers[i].timeUntillTimeout = timeoutTime;
-                }
-
-
-                //Console.WriteLine("Resetting ping array");
-                connectedPlayers[i].pingAnswered = false; // resets the array
-
-                int commandType = 0; // Type 0 means pinging
-                byte[] messageByte = Encoding.ASCII.GetBytes($"#{commandType}#");
-                await socket.SendToAsync(messageByte, connectedPlayers[i].address);
-
-                //Console.WriteLine(connectedUdpClient[i]);
-            }
+            await PingClients(timeoutTime);
             Thread.Sleep(1000);
         }
     }
     private void MonitorValues()
     {
         Console.Clear();
+        Console.WriteLine($"Server port: {serverPort} | Players: {GetCurrentPlayerCount()}/{maxPlayers}\n");
+        for (int i = 0; i < maxPlayers; i++)
+        {
+            if (connectedPlayers[i] == null) { Console.WriteLine("Free slot"); continue; }
+            Console.WriteLine(connectedPlayers[i]);
+        }
+    }
+    private async Task PingClients(byte timeoutTime)
+    {
+        for (int i = 0; i < maxPlayers; i++)
+        {
+            if (connectedPlayers[i] == null) continue;
+            if (connectedPlayers[i].pingAnswered == false) // runs if connected client hasn't replied to ping
+            {
+                connectedPlayers[i].timeUntillTimeout--;
+                connectedPlayers[i].status = 0;
+
+                if (connectedPlayers[i].timeUntillTimeout < 1) // runs if client didnt answer during timeout interval
+                {
+                    DisconnectClient(connectedPlayers[i].index);
+                    continue;
+                }
+            }
+            else if (connectedPlayers[i].pingAnswered == true && connectedPlayers[i].timeUntillTimeout != timeoutTime) // runs if connected client answered the ping
+            {
+                //Console.WriteLine($"Timeout timer was reset for index {i} player");
+                connectedPlayers[i].timeUntillTimeout = timeoutTime;
+            }
+
+
+            //Console.WriteLine("Resetting ping array");
+            connectedPlayers[i].pingAnswered = false; // resets the array
+
+            int commandType = 0; // Type 0 means pinging
+            byte[] messageByte = Encoding.ASCII.GetBytes($"#{commandType}#");
+            await socket.SendToAsync(messageByte, SocketFlags.None, connectedPlayers[i].address);
+            connectedPlayers[i].pingRequestTime = DateTime.UtcNow;
+
+            //Console.WriteLine(connectedUdpClient[i]);
+        }
+    }
+    private void UpdatePlayerNamesBeforeSending()
+    {
+
+    }
+    private void SendPlayerNames(EndPoint clientAddress)
+    {
+        EveryPlayersName everyPlayersName = new EveryPlayersName();
+        everyPlayersName.playerNames = new string[maxPlayers];
+
+        int index = 0;
+        for (int i = 0; i < maxPlayers; i++)
+        {
+            if (connectedPlayers[i] == null) continue;
+            //everyPlayersName.playerIndex[i] = connectedPlayers[i].index;
+            everyPlayersName.playerNames[index] = connectedPlayers[i].playerName;
+            index++;
+        }
+
+        string jsonData = JsonSerializer.Serialize(everyPlayersName, EveryPlayersNameContext.Default.EveryPlayersName);
+        int commandType = 4; // Type 4 means server sends everyone's name to the clients
+        byte[] messageByte = Encoding.ASCII.GetBytes($"#{commandType}#{jsonData}");
+        socket.SendTo(messageByte, clientAddress);
+    }
+    private int GetCurrentPlayerCount()
+    {
+        int playerCount = 0;
         for (int i = 0; i < maxPlayers; i++)
         {
             if (connectedPlayers[i] != null)
             {
-                Console.WriteLine(connectedPlayers[i]);
-            }
-            else
-            {
-                Console.WriteLine("Free slot");
+                playerCount++;
             }
         }
-
-        //if (connectedPlayers.Count == 0)
-        //{
-        //    Console.WriteLine("Server is running, but nobody is connected");
-        //}
-
+        return playerCount;
     }
-    private void DisconnectClient(int clientIndex)
+    private void CalculatePlayerLatency(int clientIndex)
     {
-        //Console.WriteLine($"Removed client {connectedPlayers[clientIndex].address} from the server");
-        clientSlotTaken[clientIndex] = false; // Free a slot
-        connectedPlayers[clientIndex] = null; // Remove the player
+        TimeSpan latency = connectedPlayers[clientIndex].pingRequestTime - DateTime.UtcNow;
+        connectedPlayers[clientIndex].latency = Math.Abs(latency.Milliseconds) / 2;
     }
     private int Authentication(Packet packet, EndPoint clientAddress)
     {
@@ -308,6 +343,13 @@ public class Server
                 return 6; // 6 means username is already taken
             }
         }
+    }
+    private void DisconnectClient(int clientIndex)
+    {
+        //Console.WriteLine($"Removed client {connectedPlayers[clientIndex].address} from the server");
+        clientSlotTaken[clientIndex] = false; // Free a slot
+        database.loggedInIds.Remove(connectedPlayers[clientIndex].address.ToString());
+        connectedPlayers[clientIndex] = null; // Remove the player
     }
 }
 
