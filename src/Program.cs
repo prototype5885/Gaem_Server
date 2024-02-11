@@ -7,5 +7,6 @@ class Program
         Server server = new Server();
         server.StartUdpServer(maxPlayers, port);
         // Thread.Sleep(Timeout.Infinite);
+
     }
 }

@@ -51,9 +51,9 @@ public class Server
             clientSlotTaken[i] = false;
         }
 
-        Task.Run(() => RunEverySecond());
         Task.Run(() => ReceiveDataUdp());
-        SendDataUdp();
+        Task.Run(() => SendDataUdp());
+        RunEverySecond();
     }
     private async Task ReceiveDataUdp()
     {
@@ -79,7 +79,7 @@ public class Server
                 {
                     int loginResult = Authentication(packet, clientAddress);
 
-                    int commandType = 1; // Type 1 means server responds to client if login/register was fail or not
+                    byte commandType = 1; // Type 1 means server responds to client if login/register was fail or not
                     byte[] messageByte = Encoding.ASCII.GetBytes($"#{commandType}#{loginResult}");
                     await socket.SendToAsync(messageByte, SocketFlags.None, clientAddress);
 
@@ -91,7 +91,6 @@ public class Server
                                 if (clientSlotTaken[index] == false)
                                 {
                                     clientSlotTaken[index] = true; // New client will take found the empty slot 
-
 
                                     connectedPlayers[index] = new ConnecetedPlayer
                                     {
@@ -112,8 +111,8 @@ public class Server
 
                                     string jsonData = JsonSerializer.Serialize(initialData, InitialDataContext.Default.InitialData);
 
-                                    int replyCommandType = 2; // Type 2 means servers sends initial data to the new client
-                                    byte[] replyMessageByte = Encoding.ASCII.GetBytes($"#{replyCommandType}#{jsonData}");
+                                    commandType = 2; // Type 2 means servers sends initial data to the new client
+                                    byte[] replyMessageByte = Encoding.ASCII.GetBytes($"#{commandType}#{jsonData}");
                                     await socket.SendToAsync(replyMessageByte, SocketFlags.None, clientAddress);
                                     break;
                                 }
@@ -156,7 +155,7 @@ public class Server
             }
         }
     }
-    private void SendDataUdp()
+    private async Task SendDataUdp()
     {
         EveryPlayersPosition everyPlayersPosition = new EveryPlayersPosition(); // this thing is the format the server sends player positions in to each client
         everyPlayersPosition.positions = new PlayerPosition[maxPlayers];
@@ -177,9 +176,9 @@ public class Server
                     try
                     {
                         string jsonData = JsonSerializer.Serialize(everyPlayersPosition, EveryPlayersPositionContext.Default.EveryPlayersPosition);
-                        int commandType = 3; // Type 3 means server sends everyone's position to the clients
+                        byte commandType = 3; // Type 3 means server sends everyone's position to the clients
                         byte[] messageByte = Encoding.ASCII.GetBytes($"#{commandType}#{jsonData}");
-                        socket.SendTo(messageByte, connectedPlayers[i].address);
+                        await socket.SendToAsync(messageByte, SocketFlags.None, connectedPlayers[i].address);
                     }
                     catch (Exception ex)
                     {
@@ -191,14 +190,14 @@ public class Server
             Thread.Sleep(10); // server tick, 100 times a second
         }
     }
-    private async Task RunEverySecond()
+    private void RunEverySecond()
     {
         const byte timeoutTime = 10;
 
         while (true)
         {
             MonitorValues();
-            await PingClients(timeoutTime);
+            PingClients(timeoutTime);
             Thread.Sleep(1000);
         }
     }
@@ -212,7 +211,7 @@ public class Server
             Console.WriteLine(connectedPlayers[i]);
         }
     }
-    private async Task PingClients(byte timeoutTime)
+    private void PingClients(byte timeoutTime)
     {
         for (int i = 0; i < maxPlayers; i++)
         {
@@ -238,9 +237,9 @@ public class Server
             //Console.WriteLine("Resetting ping array");
             connectedPlayers[i].pingAnswered = false; // resets the array
 
-            int commandType = 0; // Type 0 means pinging
+            byte commandType = 0; // Type 0 means pinging
             byte[] messageByte = Encoding.ASCII.GetBytes($"#{commandType}#");
-            await socket.SendToAsync(messageByte, SocketFlags.None, connectedPlayers[i].address);
+            socket.SendTo(messageByte, SocketFlags.None, connectedPlayers[i].address);
             connectedPlayers[i].pingRequestTime = DateTime.UtcNow;
 
             //Console.WriteLine(connectedUdpClient[i]);
@@ -265,7 +264,7 @@ public class Server
         }
 
         string jsonData = JsonSerializer.Serialize(everyPlayersName, EveryPlayersNameContext.Default.EveryPlayersName);
-        int commandType = 4; // Type 4 means server sends everyone's name to the clients
+        byte commandType = 4; // Type 4 means server sends everyone's name to the clients
         byte[] messageByte = Encoding.ASCII.GetBytes($"#{commandType}#{jsonData}");
         socket.SendTo(messageByte, clientAddress);
     }
