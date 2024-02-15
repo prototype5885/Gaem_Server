@@ -54,8 +54,9 @@ internal partial class InitialDataContext : JsonSerializerContext
 }
 public class InitialData
 {
-    public int i { get; set; }
-    public int mp { get; set; }
+    public int lr { get; set; } // login result, response to the client about how the login went
+    public int i { get; set; } // client index so player knows what slot he/she/it is in
+    public int mp { get; set; } // max player amount so client will also know it
 }
 
 // EveryPlayersName

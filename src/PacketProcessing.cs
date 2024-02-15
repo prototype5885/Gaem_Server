@@ -1,40 +1,80 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Net;
 using System.Net.Sockets;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Timers;
 
 
 public class PacketProcessing
 {
-    List<string> sentPackets = new List<string>();
-    public async Task SendReliablePacket(string message, UdpClient udpClient)
+    public Socket socket;
+
+    private List<string> packetWithoutACK = new List<string>();
+
+    public async Task SendUnreliable(byte commandType, string message, EndPoint address)
     {
-
-        Byte[] messageBytes = Encoding.ASCII.GetBytes(message);
-        sentPackets.Add(message);
-        Console.WriteLine($"Packet {message} has been added to the packet list waiting for reply...");
-
-        int attempts = 0;
-        while (sentPackets.Contains(message))
+        try
         {
-            if (attempts > 100)
+            byte[] messageByte = Encoding.ASCII.GetBytes($"#{commandType}#{message}");
+
+            if (address == null)
             {
-                Console.WriteLine("Packet delivery failed");
-                break;
+                await socket.SendAsync(messageByte, SocketFlags.None);
             }
-            await udpClient.SendAsync(messageBytes, messageBytes.Length);
-            Thread.Sleep(500);
-            attempts++;
-            Console.WriteLine($"Sent packet {message}, attempts: {attempts}");
+            else
+            {
+                await socket.SendToAsync(messageByte, SocketFlags.None, address);
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error sending unreliable message type {commandType}. Exception: {ex.Message}");
         }
     }
+    public async Task SendReliable(byte commandType, string message, EndPoint address)
+    {
+        try
+        {
+            Console.WriteLine("Sending repliable message");
+            byte[] messageByte = Encoding.ASCII.GetBytes($"#{commandType}#{message}");
+            packetWithoutACK.Add(message);
+            Console.WriteLine($"Packet {message} has been added to the packet list waiting for reply...");
+
+            if (address == null)
+            {
+                await socket.SendAsync(messageByte, SocketFlags.None);
+            }
+            else
+            {
+                await socket.SendToAsync(messageByte, SocketFlags.None, address);
+            }
+
+            var timer = new System.Timers.Timer();
+            timer.Interval = 1000;
+            timer.Elapsed += SendAgain;
+            timer.AutoReset = false;
+            timer.Enabled = true;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error sending reliable message type {commandType}. Exception: {ex.Message}");
+        }
+
+    }
+
+    private static void SendAgain(object source, ElapsedEventArgs e)
+    {
+        Console.WriteLine("Timer elapsed at: " + e.SignalTime);
+    }
+
     public void AcknowledgeReceived(string message)
     {
-        sentPackets.Remove(message);
+        packetWithoutACK.Remove(message);
     }
     public Packet BreakUpPacket(byte[] receivedBytes, int byteLength)
     {
