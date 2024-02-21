@@ -5,7 +5,7 @@ class Program
         int maxPlayers = 10;
         int port = 1943;
         Server server = new Server();
-        server.StartUdpServer(maxPlayers, port);
+        server.StartServer(maxPlayers, port);
 
     }
 }

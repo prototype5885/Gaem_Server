@@ -14,7 +14,9 @@ public class ConnecetedPlayer
     public int index { get; set; }
     public int databaseID { get; set; }
     public string playerName { get; set; }
-    public EndPoint address { get; set; }
+    public IPEndPoint address { get; set; }
+    public NetworkStream stream { get; set; }
+    public CancellationTokenSource cancellationTokenSource { get; set; }
     public byte status { get; set; }
 
     public bool pingAnswered { get; set; }
