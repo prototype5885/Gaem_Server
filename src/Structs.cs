@@ -6,12 +6,12 @@ using System.Xml.Linq;
 
 public class Packet
 {
-    public int type { get; set; }
+    public byte type { get; set; }
     public string data { get; set; }
 }
 public class ConnecetedPlayer
 {
-    public int index { get; set; }
+    public byte index { get; set; }
     public int databaseID { get; set; }
     public string playerName { get; set; }
     public IPEndPoint address { get; set; }

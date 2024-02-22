@@ -8,11 +8,12 @@ using System.Security;
 using System.Net.NetworkInformation;
 using System.Runtime.InteropServices;
 using System;
+using System.Text.RegularExpressions;
 
 
 public class Server
 {
-    private int maxPlayers = 0;
+    private byte maxPlayers = 0;
 
     private static IPEndPoint serverAddress = null;
     private int serverPort = 0;
@@ -23,9 +24,8 @@ public class Server
     //private static EveryPlayersName everyPlayersName = new EveryPlayersName();
 
     private static readonly Database database = new Database(); // Creates database object
-    private static readonly PacketProcessing packetProcessing = new PacketProcessing();
 
-    public void StartServer(int maxPlayers, int port)
+    public void StartServer(byte maxPlayers, int port)
     {
         serverPort = port;
         this.maxPlayers = maxPlayers;
@@ -35,7 +35,7 @@ public class Server
 
         InitializeValues();
 
-        Task.Run(() => WaitForConnections());
+        Task.Run(() => WaitForNewConnections());
         Task.Run(() => ReplicatePlayerPositions());
         RunEverySecond();
     }
@@ -43,128 +43,44 @@ public class Server
     {
         clientSlotTaken = new bool[maxPlayers];
         connectedPlayers = new ConnecetedPlayer[maxPlayers];
-        // packetProcessing.socket = socket;
 
-        for (int i = 0; i < maxPlayers; i++)
+        for (byte i = 0; i < maxPlayers; i++)
         {
             clientSlotTaken[i] = false;
         }
     }
-    private async Task WaitForConnections()
+    private async Task WaitForNewConnections()
     {
         while (true)
         {
-            TcpClient client = server.AcceptTcpClient(); // Waits until a client has connected to the server
-            IPEndPoint clientAddress = (IPEndPoint)client.Client.RemoteEndPoint; // Gets the IP address of the new client
-
-            NetworkStream stream = client.GetStream();
-
-            Byte[] buffer = new Byte[256];
-
+            TcpClient newClient = server.AcceptTcpClient(); // Waits until a client has connected to the server
+            NetworkStream stream = newClient.GetStream();
+            Byte[] buffer = new Byte[512];
             int bytesRead = await stream.ReadAsync(buffer, 0, buffer.Length);
-
-            Packet packet = packetProcessing.BreakUpPacket(buffer, bytesRead); // Processes the received packet
-
-            if (packet.type == 1)
-            {
-                int loginResult = Authentication(packet, clientAddress); // checks if username/password is correct
-
-                if (loginResult == 1)
-                {
-                    //await packetProcessing.SendUnreliable(10, packet.data, null); // send ACK back
-                    for (int index = 0; index < maxPlayers; index++)
-                    {
-                        if (clientSlotTaken[index] == false)
-                        {
-                            clientSlotTaken[index] = true; // New client will take found the empty slot 
-
-                            connectedPlayers[index] = new ConnecetedPlayer
-                            {
-                                index = index,
-                                databaseID = database.loggedInIds[clientAddress.ToString()],
-                                address = clientAddress,
-                                stream = stream,
-                                cancellationTokenSource = new CancellationTokenSource()
-                            };
-                            connectedPlayers[index].playerName = database.GetUsername(connectedPlayers[index].databaseID);
-
-
-                            InitialData initialData = new InitialData
-                            {
-                                lr = loginResult, // 
-                                i = index, // client's assigned id
-                                mp = maxPlayers // max player amount
-                            };
-
-                            System.Console.WriteLine("replying");
-
-                            string jsonData = JsonSerializer.Serialize(initialData, InitialDataContext.Default.InitialData);
-                            await packetProcessing.Send(1, jsonData, stream); // Type 1 means servers sends initial data to the new client
-                            _ = ReceiveData(connectedPlayers[index]);
-                            break;
-                        }
-                    }
-                }
-                else // login failed
-                {
-                    InitialData initialData = new InitialData
-                    {
-                        lr = loginResult, // 
-                        i = -1, // client's assigned id
-                        mp = -1 // max player amount
-                    };
-
-                    string jsonData = JsonSerializer.Serialize(initialData, InitialDataContext.Default.InitialData);
-                    await packetProcessing.Send(1, jsonData, stream); // Type 1 means servers sends initial data to the new client
-                    stream.Close();
-                }
-            }
-            else
-            {
-                stream.Close();
-            }
+            await ProcessBuffer(buffer, bytesRead, newClient, null, stream); // Processes the received packet
         }
     }
-    private async Task ReceiveData(ConnecetedPlayer client)
+    private async Task ReceiveData(ConnecetedPlayer connectedClient)
     {
-        CancellationToken cancellationToken = client.cancellationTokenSource.Token;
+        CancellationToken cancellationToken = connectedClient.cancellationTokenSource.Token;
         byte[] buffer = null;
         try
         {
             while (!cancellationToken.IsCancellationRequested)
             {
-                buffer = new byte[1024];
-                EndPoint clientEndPoint = new IPEndPoint(IPAddress.Any, 0);
-                int receivedBytes = await client.stream.ReadAsync(buffer, 0, buffer.Length, cancellationToken);
-                // int receivedBytes = await client.stream.ReadAsync(buffer, 0, buffer.Length);
-                Packet packet = packetProcessing.BreakUpPacket(buffer, receivedBytes); // Processes the received packet
-
-                if (packet == null) continue; // Stops if packet can't be processed
-
-                switch (packet.type)
-                {
-                    // Type 0 means client answers the ping
-                    case 0:
-                        client.pingAnswered = true;
-                        client.status = 1;
-                        CalculatePlayerLatency(client.index);
-                        break;
-                    // Type 3 means client is sending its own position to the server
-                    case 3:
-                        PlayerPosition clientPlayerPosition = JsonSerializer.Deserialize(packet.data, PlayerPositionContext.Default.PlayerPosition);
-                        client.position = clientPlayerPosition;
-                        break;
-                }
+                buffer = new byte[8192];
+                int receivedBytes = await connectedClient.stream.ReadAsync(buffer, 0, buffer.Length, cancellationToken);
+                await ProcessBuffer(buffer, receivedBytes, null, connectedClient, null);
             }
         }
         catch (OperationCanceledException)
         {
-            System.Console.WriteLine($"Receiving task for client id {client.index} was cancelled");
+            System.Console.WriteLine($"Receiving task for client id {connectedClient.index} was cancelled");
         }
         catch (IOException ex) when (ex.InnerException is SocketException socketEx && socketEx.SocketErrorCode == SocketError.ConnectionReset)
         {
             // Handle sudden client disconnect (ConnectionReset)
-            Console.WriteLine($"Client disconnected abruptly: {client.address}");
+            Console.WriteLine($"Client disconnected abruptly: {connectedClient.address}");
         }
         // catch (Exception e)
         // {
@@ -179,21 +95,22 @@ public class Server
 
         while (true)
         {
-            for (int i = 0; i < maxPlayers; i++) // copies the players' positions so server can send
+            Thread.Sleep(100); // server tick, 100 times a second
+            for (byte i = 0; i < maxPlayers; i++) // copies the players' positions so server can send
             {
                 if (connectedPlayers[i] == null) continue; // skips index if no connected player occupies the slot
                 everyPlayersPosition.positions[i] = connectedPlayers[i].position;
             }
 
-            for (int i = 0; i < maxPlayers; i++) // loops through every connected players positions to each
+            for (byte i = 0; i < maxPlayers; i++) // loops through every connected players positions to each
             {
                 if (connectedPlayers[i] == null) continue; // skips index if no connected player occupies the slot
                 if (connectedPlayers[i].pingAnswered == false) continue;
                 string jsonData = JsonSerializer.Serialize(everyPlayersPosition, EveryPlayersPositionContext.Default.EveryPlayersPosition);
-                await packetProcessing.Send(3, jsonData, connectedPlayers[i].stream);
+                Send(3, jsonData, connectedPlayers[i].stream);
 
             }
-            Thread.Sleep(100); // server tick, 100 times a second
+
         }
     }
     private void RunEverySecond()
@@ -211,7 +128,7 @@ public class Server
     {
         Console.Clear();
         Console.WriteLine($"Server port: {serverPort} | Players: {GetCurrentPlayerCount()}/{maxPlayers}\n");
-        for (int i = 0; i < maxPlayers; i++)
+        for (byte i = 0; i < maxPlayers; i++)
         {
             if (connectedPlayers[i] == null) { Console.WriteLine("Free slot"); continue; }
             Console.WriteLine(connectedPlayers[i]);
@@ -219,7 +136,7 @@ public class Server
     }
     private async void PingClients(byte timeoutTime)
     {
-        for (int i = 0; i < maxPlayers; i++)
+        for (byte i = 0; i < maxPlayers; i++)
         {
             if (connectedPlayers[i] == null) continue;
 
@@ -241,7 +158,7 @@ public class Server
 
             connectedPlayers[i].pingAnswered = false; // resets the array
 
-            await packetProcessing.Send(0, "{p}", connectedPlayers[i].stream);
+            Send(0, "{p}", connectedPlayers[i].stream);
 
             connectedPlayers[i].pingRequestTime = DateTime.UtcNow;
         }
@@ -268,10 +185,10 @@ public class Server
     //     await packetProcessing.Send(4, jsonData, clientAddress);
     // }
 
-    private int GetCurrentPlayerCount()
+    private byte GetCurrentPlayerCount()
     {
-        int playerCount = 0;
-        for (int i = 0; i < maxPlayers; i++)
+        byte playerCount = 0;
+        for (byte i = 0; i < maxPlayers; i++)
         {
             if (connectedPlayers[i] != null)
             {
@@ -280,72 +197,168 @@ public class Server
         }
         return playerCount;
     }
-    private void CalculatePlayerLatency(int clientIndex)
+    private void CalculatePlayerLatency(byte clientIndex)
     {
         TimeSpan latency = connectedPlayers[clientIndex].pingRequestTime - DateTime.UtcNow;
         connectedPlayers[clientIndex].latency = Math.Abs(latency.Milliseconds) / 2;
     }
-    private int Authentication(Packet packet, IPEndPoint clientAddress)
-    {
-        //Console.WriteLine("Starting authentication of client...");
 
-        // Converts received json format data to username and password
-        LoginData loginData = new LoginData();
-        try
+    private void DisconnectClient(byte clientIndex)
+    {
+        //Console.WriteLine($"Removed client {connectedPlayers[clientIndex].address} from the server");
+        clientSlotTaken[clientIndex] = false; // Free a slot
+        database.loggedInIds.Remove(connectedPlayers[clientIndex].address.ToString());
+        connectedPlayers[clientIndex].cancellationTokenSource.Cancel();
+        System.Console.WriteLine(connectedPlayers[clientIndex].stream);
+        connectedPlayers[clientIndex].stream.Close();
+        System.Console.WriteLine(connectedPlayers[clientIndex].stream);
+        connectedPlayers[clientIndex] = null; // Remove the player
+    }
+    private async Task ProcessBuffer(byte[] receivedBytes, int byteLength, TcpClient newClient, ConnecetedPlayer connectedClient, NetworkStream stream)
+    {
+        // try
         {
-            loginData = JsonSerializer.Deserialize(packet.data, LoginDataContext.Default.LoginData);
+            string bufferString = Encoding.ASCII.GetString(receivedBytes, 0, byteLength);
+            // Console.WriteLine(bufferString);
+
+            string packetTypePattern = @"#(.*)#";
+            string packetDataPattern = @"\$(.*?)\$";
+
+            MatchCollection packetTypeMatches = Regex.Matches(bufferString, packetTypePattern);
+            MatchCollection packetDataMatches = Regex.Matches(bufferString, packetDataPattern);
+
+            for (byte i = 0; i < packetTypeMatches.Count; i++)
+            {
+                byte.TryParse(packetTypeMatches[i].Groups[1].Value, out byte typeOfPacket);
+
+                Packet packet = new Packet();
+                packet.type = typeOfPacket;
+                packet.data = packetDataMatches[i].Groups[1].Value;
+
+                if (packet.type == 1)
+                    await ProcessDataSentByNewPlayer(packet, newClient, stream);
+                else
+                    ProcessDataSentByPlayer(packet, connectedClient);
+            }
         }
-        catch (Exception ex)
+        // catch
+        // {
+        //     System.Console.WriteLine("Error processing buffer");
+        // }
+
+    }
+    private void ProcessDataSentByPlayer(Packet packet, ConnecetedPlayer conectedClient)
+    {
+        // try
+        // {
+        switch (packet.type)
         {
-            Console.WriteLine($"{ex.Message}");
+            // Type 0 means client answers the ping
+            case 0:
+                conectedClient.pingAnswered = true;
+                conectedClient.status = 1;
+                CalculatePlayerLatency(conectedClient.index);
+                break;
+            // Type 3 means client is sending its own position to the server
+            case 3:
+                PlayerPosition clientPlayerPosition = JsonSerializer.Deserialize(packet.data, PlayerPositionContext.Default.PlayerPosition);
+                conectedClient.position = clientPlayerPosition;
+                break;
         }
+        // }
+        // catch
+        // {
+        //     Console.WriteLine("Packet error");
+        // }
+    }
+    private async Task ProcessDataSentByNewPlayer(Packet packet, TcpClient newClient, NetworkStream stream)
+    {
+        // try
+        // {
+        IPEndPoint clientAddress = (IPEndPoint)newClient.Client.RemoteEndPoint; // Gets the IP address of the new client
+        LoginData loginData = JsonSerializer.Deserialize(packet.data, LoginDataContext.Default.LoginData);
 
         bool loginOrRegister = loginData.lr; // True if client wants to login, false if client wants to register register
         string username = loginData.un;
         string hashedPassword = loginData.pw;
 
-        if (loginOrRegister == true) // Runs if client wants to login
+        byte loginResult;
+        if (loginOrRegister == true)
+            loginResult = database.LoginUser(username, hashedPassword, clientAddress.ToString()); // Runs if client wants to login
+        else
+            loginResult = database.RegisterUser(username, hashedPassword, clientAddress.ToString()); // Runs if client wants to register
+
+        System.Console.WriteLine(loginResult);
+        if (loginResult == 1)
         {
-            byte loginResult = database.LoginUser(username, hashedPassword, clientAddress.ToString()); // Try to login the user
-            switch (loginResult)
+            for (byte index = 0; index < maxPlayers; index++)
             {
-                case 1:
-                    return 1; // Login was accepted
-                case 2:
-                    return 2; // Client entered wrong username or password
-                case 3:
-                    return 3; // No user was found with this name
-                case 4:
-                    return 4; // This user is already logged in
+                if (clientSlotTaken[index] == false)
+                {
+                    clientSlotTaken[index] = true; // New client will take found the empty slot 
+
+                    connectedPlayers[index] = new ConnecetedPlayer
+                    {
+                        index = index,
+                        databaseID = database.loggedInIds[clientAddress.ToString()],
+                        address = clientAddress,
+                        stream = stream,
+                        cancellationTokenSource = new CancellationTokenSource()
+                    };
+                    connectedPlayers[index].playerName = database.GetUsername(connectedPlayers[index].databaseID);
+
+                    InitialData initialData = new InitialData
+                    {
+                        lr = loginResult, // value represents how the server responded to login, like if success or not
+                        i = index, // client's assigned id
+                        mp = maxPlayers // max player amount
+                    };
+
+                    string jsonData = JsonSerializer.Serialize(initialData, InitialDataContext.Default.InitialData);
+                    Send(1, jsonData, stream); // Type 1 means servers sends initial data to the new client
+                    _ = ReceiveData(connectedPlayers[index]);
+                    break;
+                }
             }
-            return -1;
         }
-        else // Runs if client wants to register
+        else // login failed
         {
-            if (username.Length < 2 || username.Length > 16) // Checks if username is longer than 16 or shorter than 2 characters
+            InitialData initialData = new InitialData
             {
-                return 5; // Client's chosen username is too long or too short
-            }
-            else if (database.RegisterUser(username, hashedPassword, clientAddress.ToString())) // Runs if registration was successful
-            {
-                return 1; // Registration of client was successful
-            }
-            else
-            {
-                return 6; // Client's chosen username is already taken
-            }
+                lr = loginResult, // value represents how the server responded to login, like if success or not
+                i = -1, // client's assigned id
+                mp = -1 // max player amount
+            };
+
+            string jsonData = JsonSerializer.Serialize(initialData, InitialDataContext.Default.InitialData);
+            Send(1, jsonData, stream); // Type 1 means servers sends initial data to the new client
+            Thread.Sleep(500); // workaround else client cant get the login failed response
+            stream.Close();
+        }
+        // }
+        // catch
+        // {
+        //     System.Console.WriteLine("Error processing data sent by new player, disconnecting new player.");
+        //     stream.Close();
+        // }
+    }
+    public void Send(byte commandType, string message, NetworkStream stream)
+    {
+        try
+        {
+            byte[] messageBytes = Encoding.ASCII.GetBytes($"#{commandType}#${message}$");
+
+
+            stream.Write(messageBytes);
+            // if (commandType == 1)
+            //     System.Console.WriteLine("initialdata sent");
+        }
+        catch
+        {
+            Console.WriteLine($"Error sending message type {commandType}.");
         }
     }
 
-    private void DisconnectClient(int clientIndex)
-    {
-        //Console.WriteLine($"Removed client {connectedPlayers[clientIndex].address} from the server");
-        clientSlotTaken[clientIndex] = false; // Free a slot
-        database.loggedInIds.Remove(connectedPlayers[clientIndex].address.ToString());
-        System.Console.WriteLine("cancel start");
-        connectedPlayers[clientIndex].cancellationTokenSource.Cancel();
-        connectedPlayers[clientIndex].stream.Close();
-        connectedPlayers[clientIndex] = null; // Remove the player
-    }
 }
+
 

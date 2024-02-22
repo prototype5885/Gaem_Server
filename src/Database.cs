@@ -32,31 +32,34 @@ public class Database
             command.ExecuteNonQuery();
         }
     }
-    public bool RegisterUser(string username, string hashedPassword, string clientAddress)
+    public byte RegisterUser(string username, string hashedPassword, string clientAddress)
     {
-        if (!CheckIfUserExists(username)) // Runs if the chosen username isnt taken yet
+        if (username.Length < 2 || username.Length > 16) // Checks if username is longer than 16 or shorter than 2 characters
         {
-            using (SqliteCommand command = new SqliteCommand("INSERT INTO Players (Username, Password, LastLoginIP, Wage, Money) VALUES (@username, @password, @lastloginip, @wage, @money);", dbConnection))
-            {
-                command.Parameters.AddWithValue("@username", username);
-                command.Parameters.AddWithValue("@password", passwordHasher.EncryptPassword(hashedPassword)); // encrypts password using bcrypt
-                command.Parameters.AddWithValue("@lastloginip", clientAddress);
-                command.Parameters.AddWithValue("@wage", 1);
-                command.Parameters.AddWithValue("@money", 1000);
-                command.ExecuteNonQuery();
-
-                UpdateLastIpAddress(username, clientAddress);
-
-                int databaseID = GetDatabaseID(clientAddress);
-                loggedInIds.Add(clientAddress, databaseID);
-
-                return true;
-            }
+            return 5; // Client's chosen username is too long or too short
         }
-        else
+        else if (CheckIfUserExists(username))
         {
-            return false;
+            return 6; // Client's chosen username is already taken
         }
+
+        using (SqliteCommand command = new SqliteCommand("INSERT INTO Players (Username, Password, LastLoginIP, Wage, Money) VALUES (@username, @password, @lastloginip, @wage, @money);", dbConnection))
+        {
+            command.Parameters.AddWithValue("@username", username);
+            command.Parameters.AddWithValue("@password", passwordHasher.EncryptPassword(hashedPassword)); // encrypts password using bcrypt
+            command.Parameters.AddWithValue("@lastloginip", clientAddress);
+            command.Parameters.AddWithValue("@wage", 1);
+            command.Parameters.AddWithValue("@money", 1000);
+            command.ExecuteNonQuery();
+
+            UpdateLastIpAddress(username, clientAddress);
+
+            int databaseID = GetDatabaseID(clientAddress);
+            loggedInIds.Add(clientAddress, databaseID);
+
+            return 1;
+        }
+
     }
     public byte LoginUser(string username, string hashedPassword, string clientAddress)
     {
