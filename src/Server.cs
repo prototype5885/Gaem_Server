@@ -15,34 +15,44 @@ public class Server
 {
     private byte maxPlayers = 0;
 
-    private static IPEndPoint serverAddress = null;
-    private int serverPort = 0;
-    private TcpListener server = null;
+    // tcp
+    private static IPEndPoint serverAddress;
+    private int serverPort;
+    private TcpListener server;
 
-    private static bool[] clientSlotTaken = null;
-    private static ConnecetedPlayer[] connectedPlayers = null;
+    // udp
+    Socket udpSocket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
+
+    private static bool[] clientSlotTaken;
+    private static ConnectedPlayer[] connectedPlayers;
     //private static EveryPlayersName everyPlayersName = new EveryPlayersName();
 
     private static readonly Database database = new Database(); // Creates database object
 
+    int tickrate = 10;
+
     public void StartServer(byte maxPlayers, int port)
     {
-        serverPort = port;
         this.maxPlayers = maxPlayers;
-        serverAddress = new IPEndPoint(IPAddress.Any, serverPort);
+        serverAddress = new IPEndPoint(IPAddress.Any, port);
         server = new TcpListener(serverAddress);
         server.Start();
+
+        udpSocket.Bind(new IPEndPoint(IPAddress.Any, port + 1));
 
         InitializeValues();
 
         Task.Run(() => WaitForNewConnections());
+        Task.Run(() => ReceiveUdpData());
         Task.Run(() => ReplicatePlayerPositions());
-        RunEverySecond();
+        Task.Run(() => RunEverySecond());
+        Thread.Sleep(Timeout.Infinite);
+        //RunEverySecond();
     }
     private void InitializeValues()
     {
         clientSlotTaken = new bool[maxPlayers];
-        connectedPlayers = new ConnecetedPlayer[maxPlayers];
+        connectedPlayers = new ConnectedPlayer[maxPlayers];
 
         for (byte i = 0; i < maxPlayers; i++)
         {
@@ -57,10 +67,10 @@ public class Server
             NetworkStream stream = newClient.GetStream();
             Byte[] buffer = new Byte[512];
             int bytesRead = await stream.ReadAsync(buffer, 0, buffer.Length);
-            await ProcessBuffer(buffer, bytesRead, newClient, null, stream); // Processes the received packet
+            await ProcessBuffer(buffer, bytesRead, newClient, null); // Processes the received packet
         }
     }
-    private async Task ReceiveData(ConnecetedPlayer connectedClient)
+    private async Task ReceiveTcpData(ConnectedPlayer connectedClient)
     {
         CancellationToken cancellationToken = connectedClient.cancellationTokenSource.Token;
         byte[] buffer = null;
@@ -70,7 +80,7 @@ public class Server
             {
                 buffer = new byte[8192];
                 int receivedBytes = await connectedClient.stream.ReadAsync(buffer, 0, buffer.Length, cancellationToken);
-                await ProcessBuffer(buffer, receivedBytes, null, connectedClient, null);
+                await ProcessBuffer(buffer, receivedBytes, null, connectedClient);
             }
         }
         catch (OperationCanceledException)
@@ -80,14 +90,64 @@ public class Server
         catch (IOException ex) when (ex.InnerException is SocketException socketEx && socketEx.SocketErrorCode == SocketError.ConnectionReset)
         {
             // Handle sudden client disconnect (ConnectionReset)
-            Console.WriteLine($"Client disconnected abruptly: {connectedClient.address}");
+            Console.WriteLine($"Client disconnected abruptly: {connectedClient.ipAddress}");
         }
         // catch (Exception e)
         // {
         //     Console.WriteLine("fail");
         // }
     }
+    private async Task ReceiveUdpData()
+    {
+        try
+        {
+            while (true)
+            {
+                //Console.Clear();
 
+
+                byte[] buffer = new byte[1024];
+                EndPoint udpEndPoint = new IPEndPoint(IPAddress.Any, 0);
+
+                int bytesRead = udpSocket.ReceiveFrom(buffer, ref udpEndPoint);
+
+                ConnectedPlayer connectedPlayer = CheckAuthenticationOfUdpSender(udpEndPoint);
+                if (connectedPlayer != null)
+                {
+                    await ProcessBuffer(buffer, bytesRead, null, connectedPlayer);
+                }
+            }
+        }
+        catch
+        {
+
+        }
+    }
+    private ConnectedPlayer CheckAuthenticationOfUdpSender(EndPoint udpEndpoint)
+    {
+        IPEndPoint udpIpEndpoint = udpEndpoint as IPEndPoint;
+
+        foreach (ConnectedPlayer player in connectedPlayers)
+        {
+
+            if (player == null) continue;
+
+            if (player.ipAddress.Equals(udpIpEndpoint.Address) && player.udpClient == null) // checks if udp packet sender is authenticated player
+            {
+                if (player.udpPort == 0) // if authenticated but its the first package, get its port
+                {
+                    player.udpPort = udpIpEndpoint.Port;
+                    player.udpClient = udpEndpoint;
+                }
+                return player;
+            }
+            else if (player.udpClient.Equals(udpEndpoint))
+            {
+                return player;
+            }
+        }
+        return null;
+    }
     private async Task ReplicatePlayerPositions()
     {
         EveryPlayersPosition everyPlayersPosition = new EveryPlayersPosition(); // this thing is the format the server sends player positions in to each client
@@ -95,7 +155,7 @@ public class Server
 
         while (true)
         {
-            Thread.Sleep(100); // server tick, 100 times a second
+            Thread.Sleep(tickrate); // server tick, 100 times a second
             for (byte i = 0; i < maxPlayers; i++) // copies the players' positions so server can send
             {
                 if (connectedPlayers[i] == null) continue; // skips index if no connected player occupies the slot
@@ -107,20 +167,20 @@ public class Server
                 if (connectedPlayers[i] == null) continue; // skips index if no connected player occupies the slot
                 if (connectedPlayers[i].pingAnswered == false) continue;
                 string jsonData = JsonSerializer.Serialize(everyPlayersPosition, EveryPlayersPositionContext.Default.EveryPlayersPosition);
-                Send(3, jsonData, connectedPlayers[i].stream);
+                await Send(3, jsonData, connectedPlayers[i], null, false); // false at the end means send using udp
 
             }
 
         }
     }
-    private void RunEverySecond()
+    private async Task RunEverySecond()
     {
         const byte timeoutTime = 4;
 
         while (true)
         {
             MonitorValues();
-            PingClients(timeoutTime);
+            await PingClients(timeoutTime);
             Thread.Sleep(1000);
         }
     }
@@ -134,7 +194,7 @@ public class Server
             Console.WriteLine(connectedPlayers[i]);
         }
     }
-    private async void PingClients(byte timeoutTime)
+    private async Task PingClients(byte timeoutTime)
     {
         for (byte i = 0; i < maxPlayers; i++)
         {
@@ -158,7 +218,7 @@ public class Server
 
             connectedPlayers[i].pingAnswered = false; // resets the array
 
-            Send(0, "{p}", connectedPlayers[i].stream);
+            await Send(0, "{p}", connectedPlayers[i], null, false);
 
             connectedPlayers[i].pingRequestTime = DateTime.UtcNow;
         }
@@ -207,14 +267,12 @@ public class Server
     {
         //Console.WriteLine($"Removed client {connectedPlayers[clientIndex].address} from the server");
         clientSlotTaken[clientIndex] = false; // Free a slot
-        database.loggedInIds.Remove(connectedPlayers[clientIndex].address.ToString());
+        database.loggedInIds.Remove(connectedPlayers[clientIndex].ipAddress.ToString());
         connectedPlayers[clientIndex].cancellationTokenSource.Cancel();
-        System.Console.WriteLine(connectedPlayers[clientIndex].stream);
         connectedPlayers[clientIndex].stream.Close();
-        System.Console.WriteLine(connectedPlayers[clientIndex].stream);
         connectedPlayers[clientIndex] = null; // Remove the player
     }
-    private async Task ProcessBuffer(byte[] receivedBytes, int byteLength, TcpClient newClient, ConnecetedPlayer connectedClient, NetworkStream stream)
+    private async Task ProcessBuffer(byte[] receivedBytes, int byteLength, TcpClient newClient, ConnectedPlayer connectedPlayer)
     {
         // try
         {
@@ -236,9 +294,9 @@ public class Server
                 packet.data = packetDataMatches[i].Groups[1].Value;
 
                 if (packet.type == 1)
-                    await ProcessDataSentByNewPlayer(packet, newClient, stream);
+                    await ProcessDataSentByNewPlayer(packet, newClient);
                 else
-                    ProcessDataSentByPlayer(packet, connectedClient);
+                    ProcessDataSentByPlayer(packet, connectedPlayer);
             }
         }
         // catch
@@ -247,7 +305,7 @@ public class Server
         // }
 
     }
-    private void ProcessDataSentByPlayer(Packet packet, ConnecetedPlayer conectedClient)
+    private void ProcessDataSentByPlayer(Packet packet, ConnectedPlayer conectedClient)
     {
         // try
         // {
@@ -271,16 +329,18 @@ public class Server
         //     Console.WriteLine("Packet error");
         // }
     }
-    private async Task ProcessDataSentByNewPlayer(Packet packet, TcpClient newClient, NetworkStream stream)
+    private async Task ProcessDataSentByNewPlayer(Packet packet, TcpClient newClient)
     {
         // try
         // {
         IPEndPoint clientAddress = (IPEndPoint)newClient.Client.RemoteEndPoint; // Gets the IP address of the new client
+        NetworkStream clientStream = newClient.GetStream();
+
         LoginData loginData = JsonSerializer.Deserialize(packet.data, LoginDataContext.Default.LoginData);
 
-        bool loginOrRegister = loginData.lr; // True if client wants to login, false if client wants to register register
-        string username = loginData.un;
-        string hashedPassword = loginData.pw;
+        bool loginOrRegister = loginData.loginOrRegister; // True if client wants to login, false if client wants to register register
+        string username = loginData.username;
+        string hashedPassword = loginData.password;
 
         byte loginResult;
         if (loginOrRegister == true)
@@ -297,12 +357,14 @@ public class Server
                 {
                     clientSlotTaken[index] = true; // New client will take found the empty slot 
 
-                    connectedPlayers[index] = new ConnecetedPlayer
+                    connectedPlayers[index] = new ConnectedPlayer
                     {
                         index = index,
                         databaseID = database.loggedInIds[clientAddress.ToString()],
-                        address = clientAddress,
-                        stream = stream,
+                        tcpClient = newClient,
+                        ipAddress = clientAddress.Address,
+                        tcpPort = clientAddress.Port,
+                        stream = newClient.GetStream(),
                         cancellationTokenSource = new CancellationTokenSource()
                     };
                     connectedPlayers[index].playerName = database.GetUsername(connectedPlayers[index].databaseID);
@@ -315,8 +377,8 @@ public class Server
                     };
 
                     string jsonData = JsonSerializer.Serialize(initialData, InitialDataContext.Default.InitialData);
-                    Send(1, jsonData, stream); // Type 1 means servers sends initial data to the new client
-                    _ = ReceiveData(connectedPlayers[index]);
+                    await Send(1, jsonData, null, clientStream, true); // Type 1 means servers sends initial data to the new client
+                    _ = ReceiveTcpData(connectedPlayers[index]);
                     break;
                 }
             }
@@ -331,9 +393,9 @@ public class Server
             };
 
             string jsonData = JsonSerializer.Serialize(initialData, InitialDataContext.Default.InitialData);
-            Send(1, jsonData, stream); // Type 1 means servers sends initial data to the new client
+            await Send(1, jsonData, null, clientStream, true); // Type 1 means servers sends initial data to the new client
             Thread.Sleep(500); // workaround else client cant get the login failed response
-            stream.Close();
+            newClient.GetStream().Close();
         }
         // }
         // catch
@@ -342,20 +404,29 @@ public class Server
         //     stream.Close();
         // }
     }
-    public void Send(byte commandType, string message, NetworkStream stream)
+    public async Task Send(byte commandType, string message, ConnectedPlayer connectedPlayer, NetworkStream stream, bool reliable)
     {
         try
         {
+            if (connectedPlayer != null)
+            {
+                stream = connectedPlayer.stream;
+            }
+
             byte[] messageBytes = Encoding.ASCII.GetBytes($"#{commandType}#${message}$");
 
-
-            stream.Write(messageBytes);
-            // if (commandType == 1)
-            //     System.Console.WriteLine("initialdata sent");
+            if (reliable)
+            {
+                await stream.WriteAsync(messageBytes);
+            }
+            else
+            {
+                await udpSocket.SendToAsync(messageBytes, SocketFlags.None, connectedPlayer.udpClient);
+            }
         }
         catch
         {
-            Console.WriteLine($"Error sending message type {commandType}.");
+            //Console.WriteLine($"Error sending message type {commandType}.");
         }
     }
 

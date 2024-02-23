@@ -8,9 +8,9 @@ internal partial class LoginDataContext : JsonSerializerContext
 }
 public class LoginData
 {
-    public bool lr { get; set; } // True if login, false if register
-    public string un { get; set; } // Username
-    public string pw { get; set; } // Password
+    public bool loginOrRegister { get; set; } // True if login, false if register
+    public string username { get; set; } // Username
+    public string password { get; set; } // Password
 }
 
 // PlayerPosition
