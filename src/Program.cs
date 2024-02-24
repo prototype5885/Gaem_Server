@@ -5,8 +5,7 @@ class Program
     {
         byte maxPlayers = 10;
         int port = 1942;
-        Server server = new Server();
-        server.StartServer(maxPlayers, port);
+        Server server = new Server(maxPlayers, port);
 
     }
 }
