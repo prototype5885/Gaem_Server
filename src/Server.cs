@@ -11,6 +11,7 @@ using System;
 using System.Text.RegularExpressions;
 
 
+
 public class Server
 {
     byte maxPlayers;
@@ -22,9 +23,10 @@ public class Server
 
     bool[] clientSlotTaken;
     ConnectedPlayer[] connectedPlayers;
-    //EveryPlayersName everyPlayersName = new EveryPlayersName();
+
 
     readonly Database database = new Database(); // Creates database object
+    readonly AesEncryption aes = new AesEncryption();
 
     int tickrate = 10;
 
@@ -49,6 +51,10 @@ public class Server
         Task.Run(() => RunEverySecond());
         Thread.Sleep(Timeout.Infinite);
     }
+    void SSL()
+    {
+
+    }
     void InitializeValues(int maxPlayers)
     {
         clientSlotTaken = new bool[maxPlayers];
@@ -65,10 +71,17 @@ public class Server
         int bytesReceived;
         while (true)
         {
-            Socket newClientSocket = await serverTcpSocket.AcceptAsync();
-            bytesReceived = await newClientSocket.ReceiveAsync(new ArraySegment<byte>(buffer), SocketFlags.None);
-            string data = Encoding.ASCII.GetString(buffer, 0, bytesReceived);
-            await ProcessBuffer(buffer, bytesReceived, newClientSocket, null); // Processes the received packet
+            using (Socket newClientSocket = await serverTcpSocket.AcceptAsync())
+            {
+                bytesReceived = await newClientSocket.ReceiveAsync(new ArraySegment<byte>(buffer), SocketFlags.None);
+
+                //foreach (byte b in buffer)
+                //{
+                //    Console.Write(b);
+                //}
+
+                await ProcessBuffer(buffer, bytesReceived, newClientSocket, null); // Processes the received packet
+            }
         }
     }
     async Task ReceiveTcpData(ConnectedPlayer connectedClient)
@@ -231,28 +244,6 @@ public class Server
             connectedPlayers[i].pingRequestTime = DateTime.UtcNow;
         }
     }
-    void UpdatePlayerNamesBeforeSending()
-    {
-
-    }
-    // async void SendPlayerNames(EndPoint clientAddress)
-    // {
-    //     EveryPlayersName everyPlayersName = new EveryPlayersName();
-    //     everyPlayersName.playerNames = new string[maxPlayers];
-
-    //     int index = 0;
-    //     for (int i = 0; i < maxPlayers; i++)
-    //     {
-    //         if (connectedPlayers[i] == null) continue;
-    //         //everyPlayersName.playerIndex[i] = connectedPlayers[i].index;
-    //         everyPlayersName.playerNames[index] = connectedPlayers[i].playerName;
-    //         index++;
-    //     }
-
-    //     string jsonData = JsonSerializer.Serialize(everyPlayersName, EveryPlayersNameContext.Default.EveryPlayersName);
-    //     await packetProcessing.Send(4, jsonData, clientAddress);
-    // }
-
     byte GetCurrentPlayerCount()
     {
         byte playerCount = 0;
@@ -281,18 +272,29 @@ public class Server
         connectedPlayers[clientIndex].cancellationTokenSource.Cancel(); // Cancels receiving task from client
         connectedPlayers[clientIndex] = null; // Remove the player
     }
-    async Task ProcessBuffer(byte[] receivedBytes, int byteLength, Socket clientTcpSocket, ConnectedPlayer connectedPlayer)
+    async Task ProcessBuffer(byte[] buffer, int byteLength, Socket clientTcpSocket, ConnectedPlayer connectedPlayer)
     {
         // try
         {
-            string bufferString = Encoding.ASCII.GetString(receivedBytes, 0, byteLength);
-            // Console.WriteLine(bufferString);
+            string bufferString = Encoding.UTF8.GetString(buffer, 0, byteLength);
+            //await Console.Out.WriteLineAsync(bufferString);
+
+            byte[] receivedBytes = new byte[byteLength];
+            Array.Copy(buffer, receivedBytes, byteLength);
+
+            //foreach (byte b in receivedBytes)
+            //{
+            //    Console.WriteLine(b);
+            //}
+
+            string receivedBytesInString = aes.Decrypt(receivedBytes);
+            //await Console.Out.WriteLineAsync(receivedBytesInString);
 
             string packetTypePattern = @"#(.*)#";
             string packetDataPattern = @"\$(.*?)\$";
 
-            MatchCollection packetTypeMatches = Regex.Matches(bufferString, packetTypePattern);
-            MatchCollection packetDataMatches = Regex.Matches(bufferString, packetDataPattern);
+            MatchCollection packetTypeMatches = Regex.Matches(receivedBytesInString, packetTypePattern);
+            MatchCollection packetDataMatches = Regex.Matches(receivedBytesInString, packetDataPattern);
 
             for (byte i = 0; i < packetTypeMatches.Count; i++)
             {
@@ -371,10 +373,8 @@ public class Server
                         index = index,
                         databaseID = database.loggedInIds[clientAddress.ToString()],
                         tcpSocket = clientTcpSocket,
-                        // tcpClient = newClient,
                         ipAddress = clientAddress.Address,
                         tcpPort = clientAddress.Port,
-                        // stream = newClient.GetStream(),
                         cancellationTokenSource = new CancellationTokenSource()
                     };
                     connectedPlayers[index].playerName = database.GetUsername(connectedPlayers[index].databaseID);
@@ -418,7 +418,7 @@ public class Server
     {
         try
         {
-            byte[] messageBytes = EncodeMessage(commandType, message);
+            byte[] messageBytes = EncodeMessage(commandType, message, true);
             await clientTcpSocket.SendAsync(messageBytes, SocketFlags.None);
 
         }
@@ -431,7 +431,7 @@ public class Server
     {
         try
         {
-            byte[] messageBytes = EncodeMessage(commandType, message);
+            byte[] messageBytes = EncodeMessage(commandType, message, true);
             await serverUdpSocket.SendToAsync(messageBytes, SocketFlags.None, udpEndpoint);
         }
         catch
@@ -439,9 +439,13 @@ public class Server
 
         }
     }
-    byte[] EncodeMessage(byte commandType, string message)
+    byte[] EncodeMessage(byte commandType, string message, bool encrypted)
     {
-        return Encoding.ASCII.GetBytes($"#{commandType}#${message}$");
+        string combinedMessage = $"#{commandType}#${message}$";
+        if (encrypted)
+            return aes.Encrypt(combinedMessage);
+        else
+            return Encoding.ASCII.GetBytes(combinedMessage);
     }
 
 }
