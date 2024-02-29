@@ -33,7 +33,7 @@ public class ConnectedPlayer
     {
         databaseID = -1;
         pingAnswered = true;
-        timeUntillTimeout = 10;
+        timeUntillTimeout = 4;
         status = 1;
         udpPort = 0;
     }
