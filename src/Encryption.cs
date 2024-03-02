@@ -3,45 +3,14 @@ using System.IO;
 using System.Security.Cryptography;
 using System.Text;
 
-public class AesEncryption
+public class Encryption
 {
     const byte ivLength = 16;
-
-    byte[] key = new byte[16];
-
-    public AesEncryption()
-    {
-        string path = "encryption_key.txt";
-
-        if (!File.Exists(path))
-        {
-            File.Create(path).Dispose();
-
-            using (TextWriter writer = new StreamWriter(path))
-            {
-                writer.WriteLine("0123456789abcdef"); // default encryption key
-                writer.Close();
-            }
-
-        }
-        else if (File.Exists(path))
-        {
-            using (TextReader reader = new StreamReader(path))
-            {
-                string keyString = reader.ReadLine();
-                Console.WriteLine(keyString);
-                key = Encoding.ASCII.GetBytes(keyString);
-                reader.Close();
-            }
-        }
-    }
-
-    public byte[] Encrypt(string message)
+    public static byte[] Encrypt(string message, byte[] encryptionKey)
     {
         try
         {
-            byte[] unencryptedBytes = Encoding.ASCII.GetBytes(message);
-
+            byte[] unencryptedBytes = Encoding.ASCII.GetBytes(message); // turns the string into byte array
             byte[] randomIV = new byte[16]; // creates a byte array of 16 length for IV
 
             using (RandomNumberGenerator rng = RandomNumberGenerator.Create())
@@ -51,7 +20,7 @@ public class AesEncryption
 
             using (Aes aes = Aes.Create())
             {
-                aes.Key = key;
+                aes.Key = encryptionKey;
                 aes.IV = randomIV;
 
                 using (MemoryStream msEncrypt = new MemoryStream())
@@ -77,7 +46,7 @@ public class AesEncryption
             return null;
         }
     }
-    public string Decrypt(byte[] encryptedMessageWithIV)
+    public static string Decrypt(byte[] encryptedMessageWithIV, byte[] encryptionKey)
     {
         try
         {
@@ -89,7 +58,7 @@ public class AesEncryption
 
             using (Aes aes = Aes.Create())
             {
-                aes.Key = key;
+                aes.Key = encryptionKey;
                 aes.IV = extractedIV;
 
                 ICryptoTransform decryptor = aes.CreateDecryptor(aes.Key, aes.IV);

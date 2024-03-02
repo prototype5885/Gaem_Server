@@ -15,15 +15,15 @@ public class ConnectedPlayer
     public int databaseID { get; set; }
     public string playerName { get; set; }
     public Socket tcpSocket { get; set; }
+    public IPEndPoint tcpEndpoint { get; set; }
     public EndPoint udpEndpoint { get; set; }
     public IPAddress ipAddress { get; set; }
     public int tcpPort { get; set; }
     public int udpPort { get; set; }
-    // public NetworkStream stream { get; set; }
     public CancellationTokenSource cancellationTokenSource { get; set; }
     public byte status { get; set; }
 
-    public bool pingAnswered { get; set; }
+    //public bool pingAnswered { get; set; }
     public DateTime pingRequestTime { get; set; }
     public int latency { get; set; }
     public byte timeUntillTimeout { get; set; }
@@ -32,7 +32,7 @@ public class ConnectedPlayer
     public ConnectedPlayer()
     {
         databaseID = -1;
-        pingAnswered = true;
+        //pingAnswered = true;
         timeUntillTimeout = 4;
         status = 1;
         udpPort = 0;
@@ -55,4 +55,15 @@ public class ConnectedPlayer
         latency = Math.Clamp(latency, 0, 999);
         return $"Addr: {ipAddress}, tcp: {tcpPort}, udp: {udpPort} | db id: {databaseID} | Name: {playerName} | Status: {statusMessage} | Latency: {latency} | Timeout in: {timeUntillTimeout} | Pos XYZ: {position}";
     }
+}
+public class AuthenticationResult
+{
+    public byte result { get; set; }
+    public int dbIndex { get; set; }
+    public string playerName { get; set; }
+
+    //public override string ToString()
+    //{
+    //    return $"loginResult: {loginResult} dbIndex: {dbIndex}";
+    //}
 }

@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Json;
 using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
+using Microsoft.Data.Sqlite;
 
 
 
@@ -11,30 +12,22 @@ public class Server
 {
     byte maxPlayers;
 
-    int tcpPort;
-    int udpPort;
-    readonly Socket serverTcpSocket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
-    readonly Socket serverUdpSocket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
+    static Socket serverTcpSocket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+    static Socket serverUdpSocket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
 
-    bool[] clientSlotTaken;
-    ConnectedPlayer[] connectedPlayers;
-
-
-    readonly Database database = new Database(); // Creates database object
-    readonly AesEncryption aes = new AesEncryption();
-
-    int tickrate = 10;
+    static ConnectedPlayer[] connectedPlayers;
 
     int sentBytesPerSecond = 0;
     int receivedBytesPerSecond = 0;
 
-    bool encryption = true;
+    static bool encryption = true;
+    byte[] encryptionKey = new byte[32];
 
-    public Server(byte maxPlayerss, int port)
+    public Server(byte maxPlayers, int port)
     {
-        maxPlayers = maxPlayerss;
-        tcpPort = port;
-        udpPort = port + 1;
+        this.maxPlayers = maxPlayers;
+        int tcpPort = port;
+        int udpPort = port + 1;
 
         // Starts TCP server
         serverTcpSocket.Bind(new IPEndPoint(IPAddress.Any, tcpPort));
@@ -54,21 +47,46 @@ public class Server
         }
 
         InitializeValues(maxPlayers);
+        GetEncryptionKey();
+
+        Database.Initialize();
 
         Task.Run(() => WaitForNewConnections());
         Task.Run(() => ReceiveUdpData());
         Task.Run(() => ReplicatePlayerPositions());
-        Task.Run(() => RunEverySecond());
+        Task.Run(() => RunEverySecond(tcpPort, udpPort));
         Thread.Sleep(Timeout.Infinite);
     }
     void InitializeValues(int maxPlayers)
     {
-        clientSlotTaken = new bool[maxPlayers];
         connectedPlayers = new ConnectedPlayer[maxPlayers];
+    }
+    void GetEncryptionKey()
+    {
+        string path = "encryption_key.txt";
 
-        for (byte i = 0; i < maxPlayers; i++)
+        if (!File.Exists(path))
         {
-            clientSlotTaken[i] = false;
+            File.Create(path).Dispose();
+
+            using (TextWriter writer = new StreamWriter(path))
+            {
+                string keyString = "0123456789ABCDEF0123456789ABCDEF";
+                encryptionKey = Encoding.ASCII.GetBytes(keyString);
+                writer.WriteLine(keyString); // default encryption key
+                writer.Close();
+            }
+
+        }
+        else if (File.Exists(path))
+        {
+            using (TextReader reader = new StreamReader(path))
+            {
+                string keyString = reader.ReadLine();
+
+                encryptionKey = Encoding.ASCII.GetBytes(keyString);
+                reader.Close();
+            }
         }
     }
     async Task WaitForNewConnections()
@@ -163,6 +181,8 @@ public class Server
     }
     async Task ReplicatePlayerPositions()
     {
+        int tickrate = 10;
+
         EveryPlayersPosition everyPlayersPosition = new EveryPlayersPosition(); // this thing is the format the server sends player positions in to each client
         everyPlayersPosition.p = new PlayerPosition[maxPlayers];
 
@@ -187,26 +207,26 @@ public class Server
             for (byte i = 0; i < maxPlayers; i++) // loops through every connected players positions to each
             {
                 if (connectedPlayers[i] == null) continue; // skips index if no connected player occupies the slot
-                if (connectedPlayers[i].pingAnswered == false) continue;
+                //if (connectedPlayers[i].pingAnswered == false) continue;
                 jsonData = JsonSerializer.Serialize(everyPlayersPosition, EveryPlayersPositionContext.Default.EveryPlayersPosition);
                 await SendUdp(3, jsonData, connectedPlayers[i].udpEndpoint);
             }
         }
     }
-    async Task RunEverySecond()
+    async Task RunEverySecond(int tcpPort, int udpPort)
     {
-        const byte timeoutTime = 4;
+        //const byte timeoutTime = 4;
 
         while (true)
         {
             receivedBytesPerSecond = 0;
             sentBytesPerSecond = 0;
-            MonitorValues();
-            await PingClients(timeoutTime);
+            //MonitorValues(tcpPort, udpPort);
+            //await PingClients();
             Thread.Sleep(1000);
         }
     }
-    void MonitorValues()
+    void MonitorValues(int tcpPort, int udpPort)
     {
         Console.Clear();
         Console.WriteLine($"TCP port: {tcpPort}, UDP port: {udpPort} | Players: {GetCurrentPlayerCount()}/{maxPlayers}");
@@ -219,41 +239,58 @@ public class Server
             Console.WriteLine(connectedPlayers[i]);
         }
     }
-    async Task PingClients(byte timeoutTime)
-    {
-        for (byte i = 0; i < maxPlayers; i++)
-        {
-            try
-            {
-                if (connectedPlayers[i] == null) continue;
+    //async Task PingClients()
+    //{
+    //    for (byte i = 0; i < maxPlayers; i++)
+    //    {
+    //        if (connectedPlayers[i] == null) continue;
+    //        connectedPlayers[i].tcpSocket.ReceiveTimeout = 1000;
+    //        if (connectedPlayers[i].tcpSocket.Poll(1000, SelectMode.SelectRead))
+    //        {
+    //            Console.WriteLine("Client answered");
+    //        }
+    //        else
+    //        {
+    //            Console.WriteLine("Client did not answer");
+    //        }
+    //    }
 
-                if (connectedPlayers[i].pingAnswered == false) // runs if connected client hasn't replied to ping
-                {
-                    connectedPlayers[i].timeUntillTimeout--;
-                    connectedPlayers[i].status = 0;
+    //}
+    //async Task PingClients(byte timeoutTime)
+    //{
+    //    for (byte i = 0; i < maxPlayers; i++)
+    //    {
+    //        try
+    //        {
+    //            if (connectedPlayers[i] == null) continue;
 
-                    if (connectedPlayers[i].timeUntillTimeout < 1) // runs if client didnt answer during timeout interval
-                    {
-                        DisconnectClient(connectedPlayers[i].index);
-                        continue;
-                    }
-                }
-                else if (connectedPlayers[i].pingAnswered == true && connectedPlayers[i].timeUntillTimeout != timeoutTime) // runs if connected client answered the ping
-                {
-                    connectedPlayers[i].timeUntillTimeout = timeoutTime;
-                }
+    //            if (connectedPlayers[i].pingAnswered == false) // runs if connected client hasn't replied to ping
+    //            {
+    //                connectedPlayers[i].timeUntillTimeout--;
+    //                connectedPlayers[i].status = 0;
 
-                connectedPlayers[i].pingAnswered = false; // resets the array
-                await SendUdp(0, "", connectedPlayers[i].udpEndpoint);
-                connectedPlayers[i].pingRequestTime = DateTime.UtcNow;
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine(ex);
-            }
+    //                if (connectedPlayers[i].timeUntillTimeout < 1) // runs if client didnt answer during timeout interval
+    //                {
+    //                    DisconnectClient(connectedPlayers[i].index);
+    //                    continue;
+    //                }
+    //            }
+    //            else if (connectedPlayers[i].pingAnswered == true && connectedPlayers[i].timeUntillTimeout != timeoutTime) // runs if connected client answered the ping
+    //            {
+    //                connectedPlayers[i].timeUntillTimeout = timeoutTime;
+    //            }
 
-        }
-    }
+    //            connectedPlayers[i].pingAnswered = false; // resets the array
+    //            await SendUdp(0, "", connectedPlayers[i].udpEndpoint);
+    //            connectedPlayers[i].pingRequestTime = DateTime.UtcNow;
+    //        }
+    //        catch (Exception ex)
+    //        {
+    //            Console.WriteLine(ex);
+    //        }
+
+    //    }
+    //}
     byte GetCurrentPlayerCount()
     {
         byte playerCount = 0;
@@ -273,13 +310,62 @@ public class Server
     }
     void DisconnectClient(byte clientIndex)
     {
-        clientSlotTaken[clientIndex] = false; // Free a slot
-        database.loggedInIds.Remove(connectedPlayers[clientIndex].ipAddress.ToString());
+        Console.WriteLine($"Player {connectedPlayers[clientIndex].playerName} has disconnected");
+        //clientSlotTaken[clientIndex] = false; // Free a slot
 
         //connectedPlayers[clientIndex].tcpSocket.Shutdown(SocketShutdown.Both);
         connectedPlayers[clientIndex].tcpSocket.Close(); // Closes TCP socket of client
         connectedPlayers[clientIndex].cancellationTokenSource.Cancel(); // Cancels receiving task from client
         connectedPlayers[clientIndex] = null; // Remove the player
+    }
+    async Task ConnectClient(Socket clientTcpSocket, IPEndPoint clientAddress, AuthenticationResult authenticationResult)
+    {
+        //bool[] indexArray = new bool[maxPlayers];
+        //for (byte p = 0; p < maxPlayers; p++)
+        //{
+        //    if (connectedPlayers[p] == null)
+        //    {
+        //        indexArray[p] = false;
+        //    }
+        //    else
+        //    {
+        //        indexArray[p] = true;
+        //    }
+        //}
+
+        for (byte index = 0; index < maxPlayers; index++)
+        {
+            if (connectedPlayers[index] == null)
+            {
+                //clientSlotTaken[index] = true; // New client will take found the empty slot 
+
+                connectedPlayers[index] = new ConnectedPlayer
+                {
+                    index = index,
+                    databaseID = authenticationResult.dbIndex,
+                    tcpSocket = clientTcpSocket,
+                    tcpEndpoint = clientAddress,
+                    ipAddress = clientAddress.Address,
+                    tcpPort = clientAddress.Port,
+                    cancellationTokenSource = new CancellationTokenSource()
+                };
+                connectedPlayers[index].playerName = authenticationResult.playerName;
+
+                InitialData initialData = new InitialData
+                {
+                    lr = authenticationResult.result, // value represents how the server responded to login, like if success or not
+                    i = index, // client's assigned id
+                    mp = maxPlayers // max player amount
+                };
+                Console.WriteLine(initialData.lr);
+
+                string jsonData = JsonSerializer.Serialize(initialData, InitialDataContext.Default.InitialData);
+                await SendTcp(1, jsonData, clientTcpSocket); // Type 1 means servers sends initial data to the new client
+                _ = ReceiveTcpData(connectedPlayers[index]);
+                break;
+            }
+        }
+
     }
     async Task ProcessBuffer(byte[] buffer, int byteLength, Socket clientTcpSocket, ConnectedPlayer connectedPlayer)
     {
@@ -292,7 +378,7 @@ public class Server
             byte[] receivedBytes = new byte[byteLength];
             Array.Copy(buffer, receivedBytes, byteLength);
 
-            receivedBytesInString = aes.Decrypt(receivedBytes);
+            receivedBytesInString = Encryption.Decrypt(receivedBytes, encryptionKey);
         }
         else
         {
@@ -334,7 +420,7 @@ public class Server
         {
             // Type 0 means client answers the ping
             case 0:
-                conectedClient.pingAnswered = true;
+                //conectedClient.pingAnswered = true;
                 conectedClient.status = 1;
                 CalculatePlayerLatency(conectedClient.index);
                 break;
@@ -352,10 +438,7 @@ public class Server
     }
     async Task ProcessDataSentByNewPlayer(Packet packet, Socket clientTcpSocket)
     {
-        // try
-        // {
         IPEndPoint clientAddress = (IPEndPoint)clientTcpSocket.RemoteEndPoint; // Gets the IP address of the new client
-        // NetworkStream clientStream = newClient.GetStream();
 
         LoginData loginData = JsonSerializer.Deserialize(packet.data, LoginDataContext.Default.LoginData);
 
@@ -363,66 +446,39 @@ public class Server
         string username = loginData.username;
         string hashedPassword = loginData.password;
 
-        byte loginResult;
-        if (loginOrRegister == true)
-            loginResult = database.LoginUser(username, hashedPassword, clientAddress.ToString()); // Runs if client wants to login
-        else
-            loginResult = database.RegisterUser(username, hashedPassword, clientAddress.ToString()); // Runs if client wants to register
-
-        System.Console.WriteLine(loginResult);
-        if (loginResult == 1)
+        AuthenticationResult authenticationResult = new AuthenticationResult();
+        if (loginOrRegister == false) // Runs if client wants to register
         {
-            for (byte index = 0; index < maxPlayers; index++)
+            authenticationResult = Database.RegisterUser(username, hashedPassword);
+            if (authenticationResult.result == 1) // runs if registration was successful
             {
-                if (clientSlotTaken[index] == false)
-                {
-                    clientSlotTaken[index] = true; // New client will take found the empty slot 
-
-                    connectedPlayers[index] = new ConnectedPlayer
-                    {
-                        index = index,
-                        databaseID = database.loggedInIds[clientAddress.ToString()],
-                        tcpSocket = clientTcpSocket,
-                        ipAddress = clientAddress.Address,
-                        tcpPort = clientAddress.Port,
-                        cancellationTokenSource = new CancellationTokenSource()
-                    };
-                    connectedPlayers[index].playerName = database.GetUsername(connectedPlayers[index].databaseID);
-
-                    InitialData initialData = new InitialData
-                    {
-                        lr = loginResult, // value represents how the server responded to login, like if success or not
-                        i = index, // client's assigned id
-                        mp = maxPlayers // max player amount
-                    };
-
-                    string jsonData = JsonSerializer.Serialize(initialData, InitialDataContext.Default.InitialData);
-                    await SendTcp(1, jsonData, clientTcpSocket); // Type 1 means servers sends initial data to the new client
-                    _ = ReceiveTcpData(connectedPlayers[index]);
-                    break;
-                }
+                authenticationResult = Database.LoginUser(username, hashedPassword, connectedPlayers);
             }
+        }
+        else if (loginOrRegister == true) // Runs if client wants to login
+        {
+            authenticationResult = Database.LoginUser(username, hashedPassword, connectedPlayers);
+        }
+
+
+        if (authenticationResult.result == 1)
+        {
+            await ConnectClient(clientTcpSocket, clientAddress, authenticationResult);
         }
         else // login failed
         {
             InitialData initialData = new InitialData
             {
-                lr = loginResult, // value represents how the server responded to login, like if success or not
+                lr = authenticationResult.result, // value represents how the server responded to login, like if success or not
                 i = -1, // client's assigned id
                 mp = -1 // max player amount
             };
 
             string jsonData = JsonSerializer.Serialize(initialData, InitialDataContext.Default.InitialData);
             await SendTcp(1, jsonData, clientTcpSocket); // Type 1 means servers sends initial data to the new client
-            Thread.Sleep(500); // workaround else client cant get the login failed response
-            // newClient.GetStream().Close();
+            //Thread.Sleep(500); // workaround else client cant get the login failed response
+            //clientTcpSocket.GetStream().Close();
         }
-        // }
-        // catch
-        // {
-        //     System.Console.WriteLine("Error processing data sent by new player, disconnecting new player.");
-        //     stream.Close();
-        // }
     }
     async Task SendTcp(byte commandType, string message, Socket clientTcpSocket)
     {
@@ -437,11 +493,16 @@ public class Server
         {
             //Console.WriteLine($"Error sending message type {commandType}.");
         }
+        //catch
+        //{
+        //    Console.WriteLine($"Player is timing out");
+        //}
     }
     async Task SendUdp(byte commandType, string message, EndPoint udpEndpoint)
     {
         try
         {
+            //Console.WriteLine(message)
             byte[] messageBytes = EncodeMessage(commandType, message);
             CalculateSentBytes(messageBytes.Length);
             await serverUdpSocket.SendToAsync(messageBytes, SocketFlags.None, udpEndpoint);
@@ -459,7 +520,7 @@ public class Server
     {
         if (encryption)
         {
-            return aes.Encrypt($"#{commandType}#${message}$");
+            return Encryption.Encrypt($"#{commandType}#${message}$", encryptionKey);
         }
         else
         {
@@ -467,5 +528,3 @@ public class Server
         }
     }
 }
-
-
