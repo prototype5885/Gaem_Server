@@ -10,7 +10,6 @@ using System.Reflection.PortableExecutable;
 public static class Database
 {
     static SqliteConnection dbConnection = new SqliteConnection("Data Source=database.db;Mode=ReadWriteCreate");
-
     public static void Initialize()
     {
         dbConnection.Open();

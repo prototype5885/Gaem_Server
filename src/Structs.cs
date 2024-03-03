@@ -11,7 +11,7 @@ public class Packet
 }
 public class ConnectedPlayer
 {
-    public byte index { get; set; }
+    //public byte index { get; set; }
     public int databaseID { get; set; }
     public string playerName { get; set; }
     public Socket tcpSocket { get; set; }
@@ -23,16 +23,16 @@ public class ConnectedPlayer
     public CancellationTokenSource cancellationTokenSource { get; set; }
     public byte status { get; set; }
 
-    //public bool pingAnswered { get; set; }
+    public bool udpPingAnswered { get; set; }
+    public byte timeUntillTimeout { get; set; }
     public DateTime pingRequestTime { get; set; }
     public int latency { get; set; }
-    public byte timeUntillTimeout { get; set; }
     public PlayerPosition position { get; set; }
 
     public ConnectedPlayer()
     {
         databaseID = -1;
-        //pingAnswered = true;
+        udpPingAnswered = true;
         timeUntillTimeout = 4;
         status = 1;
         udpPort = 0;

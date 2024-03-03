@@ -3,7 +3,7 @@ using System.IO;
 using System.Security.Cryptography;
 using System.Text;
 
-public class Encryption
+public static class Encryption
 {
     const byte ivLength = 16;
     public static byte[] Encrypt(string message, byte[] encryptionKey)
