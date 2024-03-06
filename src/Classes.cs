@@ -14,7 +14,8 @@ public class ConnectedPlayer
     //public byte index { get; set; }
     public int databaseID { get; set; }
     public string playerName { get; set; }
-    public Socket tcpSocket { get; set; }
+    public TcpClient tcpClient { get; set; }
+    public NetworkStream tcpStream { get; set; }
     public IPEndPoint tcpEndpoint { get; set; }
     public EndPoint udpEndpoint { get; set; }
     public IPAddress ipAddress { get; set; }
@@ -33,7 +34,7 @@ public class ConnectedPlayer
     {
         databaseID = -1;
         udpPingAnswered = true;
-        timeUntillTimeout = 4;
+        timeUntillTimeout = Monitoring.timeoutTime;
         status = 1;
         udpPort = 0;
     }
@@ -67,3 +68,4 @@ public class AuthenticationResult
     //    return $"loginResult: {loginResult} dbIndex: {dbIndex}";
     //}
 }
+

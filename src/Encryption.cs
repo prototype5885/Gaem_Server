@@ -5,8 +5,37 @@ using System.Text;
 
 public static class Encryption
 {
+    public static byte[] encryptionKey;
     const byte ivLength = 16;
-    public static byte[] Encrypt(string message, byte[] encryptionKey)
+    public static readonly bool encryption = true;
+
+    public static void GetEncryptionKey()
+    {
+        string path = "encryption_key.txt";
+        string keyString = String.Empty;
+
+        if (!File.Exists(path))
+        {
+            File.Create(path).Dispose();
+
+            using (TextWriter writer = new StreamWriter(path))
+            {
+                keyString = "0123456789ABCDEF0123456789ABCDEF";
+                writer.WriteLine(keyString); // default encryption key
+                writer.Close();
+            }
+        }
+        else if (File.Exists(path))
+        {
+            using (TextReader reader = new StreamReader(path))
+            {
+                keyString = reader.ReadLine();
+                reader.Close();
+            }
+        }
+        encryptionKey = Encoding.ASCII.GetBytes(keyString);
+    }
+    public static byte[] Encrypt(string message)
     {
         try
         {
@@ -46,7 +75,7 @@ public static class Encryption
             return null;
         }
     }
-    public static string Decrypt(byte[] encryptedMessageWithIV, byte[] encryptionKey)
+    public static string Decrypt(byte[] encryptedMessageWithIV)
     {
         try
         {
