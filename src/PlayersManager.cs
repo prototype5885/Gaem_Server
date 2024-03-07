@@ -10,11 +10,9 @@ public static class PlayersManager
 {
     public static async Task ReplicatePlayerPositions()
     {
-
         EveryPlayersPosition everyPlayersPosition = new EveryPlayersPosition(); // this thing is the format the server sends player positions in to each client
         everyPlayersPosition.p = new PlayerPosition[Server.maxPlayers];
 
-        string jsonData;
         while (true)
         {
             Thread.Sleep(Server.tickrate); // server tick, 100 times a second
@@ -22,22 +20,35 @@ public static class PlayersManager
             {
                 if (Server.connectedPlayers[i] == null)
                 {
-                    if (everyPlayersPosition.p[i] != null)
-                    {
-                        everyPlayersPosition.p[i] = null;
-                    }
+                    everyPlayersPosition.p[i] = null;
                     continue;
                 }
 
                 everyPlayersPosition.p[i] = Server.connectedPlayers[i].position;
             }
-
-            for (byte i = 0; i < Server.maxPlayers; i++) // loops through every connected players positions to each
+            // Console.Clear();
+            // foreach (PlayerPosition playerPosition in everyPlayersPosition.p)
+            // {
+            //     if (playerPosition == null)
+            //         Console.Write("0");
+            //     else
+            //         Console.Write("1");
+            // }
+            foreach (ConnectedPlayer connectedPlayer in Server.connectedPlayers)
             {
-                if (Server.connectedPlayers[i] == null) continue; // skips index if no connected player occupies the slot
-                //if (connectedPlayers[i].pingAnswered == false) continue;
-                jsonData = JsonSerializer.Serialize(everyPlayersPosition, EveryPlayersPositionContext.Default.EveryPlayersPosition);
-                await PacketProcessor.SendTcp(3, jsonData, Server.connectedPlayers[i].tcpStream);
+                if (connectedPlayer == null) continue;
+                else
+                {
+                    string jsonData = JsonSerializer.Serialize(everyPlayersPosition, EveryPlayersPositionContext.Default.EveryPlayersPosition);
+                    try
+                    {
+                        await PacketProcessor.SendUdp(3, jsonData, connectedPlayer);
+                    }
+                    catch
+                    {
+                        Console.WriteLine("error sending position to a player");
+                    }
+                }
             }
         }
     }
@@ -45,16 +56,6 @@ public static class PlayersManager
     {
         TimeSpan timeSpan = connectedPlayer.pingRequestTime - DateTime.UtcNow;
         connectedPlayer.latency = Math.Abs(timeSpan.Milliseconds) / 2;
-    }
-    public static void DisconnectClient(ConnectedPlayer connectedPlayer)
-    {
-        connectedPlayer.tcpClient.Close(); // Closes TCP connection of client
-        connectedPlayer.cancellationTokenSource.Cancel(); // Cancels receiving task from client
-
-        Console.WriteLine($"Player {connectedPlayer.playerName} was disconnected");
-
-        byte clientIndex = (byte)Array.IndexOf(Server.connectedPlayers, connectedPlayer);
-        Server.connectedPlayers[clientIndex] = null; // Remove the player
     }
 }
 

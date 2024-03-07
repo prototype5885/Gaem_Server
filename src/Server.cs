@@ -9,6 +9,9 @@ public static class Server
     public static TcpListener tcpListener;
     public static Socket serverUdpSocket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
 
+    public static int tcpPort;
+    public static int udpPort;
+
     public static ConnectedPlayer[] connectedPlayers;
 
     public static byte maxPlayers = 10;
@@ -19,8 +22,8 @@ public static class Server
         maxPlayers = 10;
         tickrate = 10;
 
-        int tcpPort = 1942;
-        int udpPort = tcpPort + 1;
+        tcpPort = 1942;
+        udpPort = tcpPort + 1;
 
         // Starts TCP server
         tcpListener = new TcpListener(IPAddress.Any, tcpPort);
@@ -44,10 +47,10 @@ public static class Server
 
         Database.Initialize();
 
-        Task.Run(() => Authentication.HandleConnectingClients());
         Task.Run(() => PacketProcessor.ReceiveUdpData());
         Task.Run(() => PlayersManager.ReplicatePlayerPositions());
-        //Task.Run(() => Monitoring.RunEverySecond(tcpPort, udpPort, maxPlayers));
+        // Task.Run(() => Monitoring.RunEverySecond());
+        Task.Run(() => Authentication.WaitForPlayerToConnect());
         Thread.Sleep(Timeout.Infinite);
 
     }

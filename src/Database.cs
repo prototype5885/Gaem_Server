@@ -20,13 +20,13 @@ public static class Database
     }
     public static AuthenticationResult RegisterUser(string username, string hashedPassword)
     {
-        Console.WriteLine($"({DateTime.Now}) Player {username} is trying to register...");
+        Console.WriteLine($"({DateTime.Now}) Player ({username}) is trying to register...");
 
         AuthenticationResult authenticationResult = new AuthenticationResult();
 
         if (username.Length < 2 || username.Length > 16) // Checks if username is longer than 16 or shorter than 2 characters
         {
-            Console.WriteLine($"({DateTime.Now}) Player {username} chosen a too long or too short username");
+            Console.WriteLine($"({DateTime.Now}) Player ({username}) chosen a too long or too short username");
             authenticationResult.result = 5;
             return authenticationResult; // Client's chosen username is too long or too short
         }
@@ -38,11 +38,10 @@ public static class Database
             {
                 if (reader.Read())
                 {
-                    Console.WriteLine($"({DateTime.Now}) Player {username} is already taken");
+                    Console.WriteLine($"({DateTime.Now}) Player ({username}) is already taken");
                     authenticationResult.result = 6;
                     return authenticationResult; // Client's chosen username is already taken
                 }
-
             }
         }
         using (SqliteCommand command = new SqliteCommand("INSERT INTO Players (Username, Password, Wage, Money) VALUES (@username, @password, @wage, @money);", dbConnection))
@@ -53,30 +52,14 @@ public static class Database
             command.Parameters.AddWithValue("@money", 1000);
             command.ExecuteNonQuery();
 
-            Console.WriteLine($"({DateTime.Now}) Player {username} was successfully registered, logging in now...");
+            Console.WriteLine($"({DateTime.Now}) Player ({username}) was successfully registered, logging in now...");
             authenticationResult.result = 1;
             return authenticationResult; // Registration was successful
         }
-        //loginResult.loginResult = 1;
-
-        //using (SqliteCommand command = new SqliteCommand("SELECT * FROM Players WHERE id = last_insert_rowid();", dbConnection))
-        //{
-        //    using (SqliteDataReader reader = command.ExecuteReader())
-        //    {
-        //        loginResult.loginResult = 1;
-        //        loginResult.dbIndex = reader.GetInt32(0);
-        //        loginResult.playerName = reader.GetString(1);
-
-        //        Console.WriteLine($"({DateTime.Now}) Player {loginResult.playerName} was selected from the database");
-        //        Console.WriteLine($"({DateTime.Now}) Player {loginResult.playerName} registered successfully");
-
-        //        return loginResult;
-        //    }
-        //}
     }
     public static AuthenticationResult LoginUser(string username, string hashedPassword, ConnectedPlayer[] connectedPlayers)
     {
-        Console.WriteLine($"({DateTime.Now}) Player {username} is trying to login...");
+        Console.WriteLine($"({DateTime.Now}) Player ({username}) is trying to login...");
 
         AuthenticationResult authenticationResult = new AuthenticationResult();
 
@@ -89,17 +72,17 @@ public static class Database
                 if (reader.Read()) // User found
                 {
                     int databaseID = reader.GetInt32(0);
-                    Console.WriteLine($"({DateTime.Now}) Player {username} was found in the database");
+                    Console.WriteLine($"({DateTime.Now}) Player ({username}) was found in the database");
                     //if (passwordHasher.VerifyPassword(hashedPassword, $"{reader["Password"]}")) 
                     if (BCrypt.Net.BCrypt.Verify(hashedPassword, $"{reader["Password"]}")) // Checks if passwords matches using bcrypt
                     {
-                        Console.WriteLine($"({DateTime.Now}) Player {username} has entered correct password");
+                        Console.WriteLine($"({DateTime.Now}) Player ({username}) has entered correct password");
                         foreach (ConnectedPlayer player in connectedPlayers) // checks if the user is already logged in
                         {
                             if (player == null) continue;
                             if (databaseID == player.databaseID)
                             {
-                                Console.WriteLine($"({DateTime.Now}) Player {username} is logged in already");
+                                Console.WriteLine($"({DateTime.Now}) Player ({username}) is logged in already");
                                 authenticationResult.result = 4; // user is already logged in
                                 return authenticationResult;
                             }
@@ -110,20 +93,20 @@ public static class Database
                         authenticationResult.dbIndex = databaseID;
                         authenticationResult.playerName = reader.GetString(1);
 
-                        Console.WriteLine($"({DateTime.Now}) Player {username} has logged in successfully, Database index:{databaseID}");
+                        Console.WriteLine($"({DateTime.Now}) Player ({username}) has logged in successfully, Database index:{databaseID}");
 
                         return authenticationResult;
                     }
                     else
                     {
-                        Console.WriteLine($"({DateTime.Now}) Player {username} entered wrong password");
+                        Console.WriteLine($"({DateTime.Now}) Player ({username}) entered wrong password");
                         authenticationResult.result = 2; // wrong password
                         return authenticationResult;
                     }
                 }
                 else // No user registered with this username
                 {
-                    Console.WriteLine($"{DateTime.Now} Player {username} is not registered");
+                    Console.WriteLine($"{DateTime.Now} Player ({username}) is not registered");
                     authenticationResult.result = 3; // no user found with this name
                     return authenticationResult;
                 }

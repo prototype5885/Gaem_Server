@@ -11,47 +11,54 @@ using System.Threading.Tasks;
 
 public static class PacketProcessor
 {
-    public static async Task SendTcp(byte commandType, string message, NetworkStream stream)
-    {
-        byte[] messageBytes = EncodeMessage(commandType, message);
-        CalculateLatency.sentBytesPerSecond += messageBytes.Length;
-        await stream.WriteAsync(messageBytes);
-    }
-    public static async Task SendUdp(byte commandType, string message, EndPoint udpEndpoint)
-    {
-        byte[] messageBytes = EncodeMessage(commandType, message);
-        CalculateLatency.sentBytesPerSecond += messageBytes.Length;
-        await Server.serverUdpSocket.SendToAsync(messageBytes, SocketFlags.None, udpEndpoint);
-    }
-    public static async Task ReceiveTcpData(ConnectedPlayer connectedClient)
+    public static async Task SendTcp(byte commandType, string message, ConnectedPlayer connectedPlayer)
     {
         try
         {
-            CancellationToken cancellationToken = connectedClient.cancellationTokenSource.Token;
+            byte[] messageBytes = EncodeMessage(commandType, message);
+            Monitoring.sentBytesPerSecond += messageBytes.Length;
+            await connectedPlayer.tcpStream.WriteAsync(messageBytes);
+        }
+        catch
+        {
+            Console.WriteLine($"Failed sending TCP data to ({connectedPlayer.playerName}), disconnecting player...");
+            Authentication.DisconnectClient(connectedPlayer);
+        }
+    }
+    public static async Task SendUdp(byte commandType, string message, ConnectedPlayer connectedPlayer)
+    {
+        if (connectedPlayer.udpEndpoint != null)
+        {
+            byte[] messageBytes = EncodeMessage(commandType, message);
+            Monitoring.sentBytesPerSecond += messageBytes.Length;
+            await Server.serverUdpSocket.SendToAsync(messageBytes, SocketFlags.None, connectedPlayer.udpEndpoint);
+        }
+    }
+    public static async Task ReceiveTcpData(ConnectedPlayer connectedPlayer)
+    {
+        try
+        {
+            Console.WriteLine($"({DateTime.Now}) Listening to tcp data from player ({connectedPlayer.playerName})");
+            CancellationToken cancellationToken = connectedPlayer.cancellationTokenSource.Token;
 
             Byte[] buffer = new Byte[1024];
             int bytesRead;
             while (!cancellationToken.IsCancellationRequested)
             {
-                bytesRead = await connectedClient.tcpStream.ReadAsync(new ArraySegment<byte>(buffer), cancellationToken);
-                CalculateLatency.receivedBytesPerSecond += bytesRead;
+                bytesRead = await connectedPlayer.tcpStream.ReadAsync(new ArraySegment<byte>(buffer), cancellationToken);
+                Monitoring.receivedBytesPerSecond += bytesRead;
                 Packet[] packets = ProcessBuffer(buffer, bytesRead);
-                ProcessPackets(packets, connectedClient);
+                ProcessPackets(packets, connectedPlayer);
             }
         }
         catch (OperationCanceledException)
         {
-            Console.WriteLine($"Receiving task for client id {Array.IndexOf(Server.connectedPlayers, connectedClient)} was cancelled");
+            Console.WriteLine($"Receiving task for client id {Array.IndexOf(Server.connectedPlayers, connectedPlayer)} was cancelled");
         }
-        catch (IOException ex) when (ex.InnerException is SocketException socketEx && socketEx.SocketErrorCode == SocketError.ConnectionReset)
+        catch
         {
-            // Handle sudden client disconnect (ConnectionReset)
-            Console.WriteLine($"Client disconnected abruptly: {connectedClient.ipAddress}");
-            PlayersManager.DisconnectClient(connectedClient);
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine(ex);
+            Console.WriteLine($"Failed to finish receiving TCP data from ({connectedPlayer.playerName}), disconnecting player...");
+            Authentication.DisconnectClient(connectedPlayer);
         }
     }
     public static async Task ReceiveUdpData()
@@ -65,9 +72,10 @@ public static class PacketProcessor
                 EndPoint udpEndPoint = new IPEndPoint(IPAddress.Any, 0);
 
                 bytesRead = await Server.serverUdpSocket.ReceiveAsync(new ArraySegment<byte>(buffer), SocketFlags.None);
-                CalculateLatency.receivedBytesPerSecond += bytesRead;
+                Monitoring.receivedBytesPerSecond += bytesRead;
 
                 ConnectedPlayer connectedPlayer = Authentication.CheckAuthenticationOfUdpClient(udpEndPoint);
+                // Console.WriteLine(connectedPlayer);
                 if (connectedPlayer != null)
                 {
                     Packet[] packets = ProcessBuffer(buffer, bytesRead);
@@ -88,7 +96,6 @@ public static class PacketProcessor
         {
             byte[] receivedBytes = new byte[byteLength];
             Array.Copy(buffer, receivedBytes, byteLength);
-
             receivedBytesInString = Encryption.Decrypt(receivedBytes);
         }
         else // runs if encryption is disabled
@@ -109,10 +116,11 @@ public static class PacketProcessor
         {
             byte.TryParse(packetTypeMatches[i].Groups[1].Value, out byte typeOfPacket);
 
-            Packet packet = new Packet();
-            packet.type = typeOfPacket;
-            packet.data = packetDataMatches[i].Groups[1].Value;
-
+            Packet packet = new Packet
+            {
+                type = typeOfPacket,
+                data = packetDataMatches[i].Groups[1].Value
+            };
             packets[i] = packet;
         }
         return packets;
