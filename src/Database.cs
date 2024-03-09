@@ -1,15 +1,8 @@
 ﻿using Microsoft.Data.Sqlite;
-using System.Collections.Generic;
-using System.Data.Common;
-using System.Linq;
-using System.Net;
-using System.Net.Sockets;
-using System.Reflection.Metadata.Ecma335;
-using System.Reflection.PortableExecutable;
 
 public static class Database
 {
-    static SqliteConnection dbConnection = new SqliteConnection("Data Source=database.db;Mode=ReadWriteCreate");
+    private static readonly SqliteConnection dbConnection = new SqliteConnection("Data Source=database.db;Mode=ReadWriteCreate");
     public static void Initialize()
     {
         dbConnection.Open();
@@ -71,7 +64,7 @@ public static class Database
             {
                 if (reader.Read()) // User found
                 {
-                    int databaseID = reader.GetInt32(0);
+                    int databaseId = reader.GetInt32(0);
                     Console.WriteLine($"({DateTime.Now}) Player ({username}) was found in the database");
                     //if (passwordHasher.VerifyPassword(hashedPassword, $"{reader["Password"]}")) 
                     if (BCrypt.Net.BCrypt.Verify(hashedPassword, $"{reader["Password"]}")) // Checks if passwords matches using bcrypt
@@ -80,20 +73,20 @@ public static class Database
                         foreach (ConnectedPlayer player in connectedPlayers) // checks if the user is already logged in
                         {
                             if (player == null) continue;
-                            if (databaseID == player.databaseID)
+                            if (databaseId == player.databaseID)
                             {
                                 Console.WriteLine($"({DateTime.Now}) Player ({username}) is logged in already");
                                 authenticationResult.result = 4; // user is already logged in
                                 return authenticationResult;
                             }
                         }
-                        // runs if user isnt logged in yet
+                        // runs if user isn't logged in yet
 
                         authenticationResult.result = 1; // Login success
-                        authenticationResult.dbIndex = databaseID;
+                        authenticationResult.dbIndex = databaseId;
                         authenticationResult.playerName = reader.GetString(1);
 
-                        Console.WriteLine($"({DateTime.Now}) Player ({username}) has logged in successfully, Database index:{databaseID}");
+                        Console.WriteLine($"({DateTime.Now}) Player ({username}) has logged in successfully, Database index:{databaseId}");
 
                         return authenticationResult;
                     }

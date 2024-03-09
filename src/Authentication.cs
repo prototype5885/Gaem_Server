@@ -1,11 +1,6 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Net.Sockets;
+﻿using System.Net.Sockets;
 using System.Net;
-using System.Text;
 using System.Text.Json;
-using System.Threading.Tasks;
 public static class Authentication
 {
     public static async Task WaitForPlayerToConnect()
@@ -16,6 +11,7 @@ public static class Authentication
             {
                 Console.WriteLine($"({DateTime.Now}) waiting for a player to connect...");
                 TcpClient tcpClient = Server.tcpListener.AcceptTcpClient(); // waits for a new client to join
+                NetworkStream tcpStream = tcpClient.GetStream();
                 Console.WriteLine($"({DateTime.Now}) New player is connecting...");
 
                 byte freeSlotIndex = 0;
@@ -24,7 +20,7 @@ public static class Authentication
                     if (connectedPlayer == null)
                     {
                         Console.WriteLine($"({DateTime.Now}) Assigned slot id {freeSlotIndex} to connecting player");
-                        await AuthenticateConnectingPlayer(tcpClient, freeSlotIndex);
+                        await AuthenticateConnectingPlayer(tcpClient, freeSlotIndex, tcpStream);
                         break;
                     }
                     else
@@ -32,7 +28,7 @@ public static class Authentication
                         freeSlotIndex++;
                     }
                 }
-                if (freeSlotIndex > Server.maxPlayers)
+                if (freeSlotIndex > Server.maxPlayers - 1)
                 {
                     Console.WriteLine($"({DateTime.Now}) Server is full, rejecting connection");
 
@@ -46,85 +42,94 @@ public static class Authentication
             }
         }
     }
-    static async Task AuthenticateConnectingPlayer(TcpClient tcpClient, byte freeSlotIndex)
+
+    private static async Task AuthenticateConnectingPlayer(TcpClient tcpClient, byte freeSlotIndex, NetworkStream tcpStream)
     {
-        NetworkStream stream = tcpClient.GetStream(); // gets the stream after a new client is connected
-        Console.WriteLine($"({DateTime.Now}) New player has connected, waiting for login data...");
+        try
+        { 
+            Console.WriteLine($"({DateTime.Now}) New player has connected, waiting for login data...");
 
-        Byte[] buffer = new Byte[1024];
-        int bytesRead = stream.Read(new ArraySegment<byte>(buffer)); // reads the bytes the client sent
-        Packet[] packets = PacketProcessor.ProcessBuffer(buffer, bytesRead); // Processes the received packet
-        Monitoring.receivedBytesPerSecond += bytesRead;
-
-        // Packet packet = packets[0]; // newly connected client is supposed to only send a single login data packet, so assuming there is only 1 packet received
-        foreach (Packet packet in packets)
-        {
-            if (packet.type == 1) // makes sure its really a login data packet
+            byte[] buffer = new byte[512];
+            int bytesRead = tcpStream.Read(new ArraySegment<byte>(buffer));
+            Console.WriteLine($"bytes read: {bytesRead}");
+            Packet[] packets = PacketProcessor.ProcessBuffer(buffer, bytesRead);
+            Monitoring.receivedBytesPerSecond += bytesRead;
+            
+            foreach (Packet packet in packets)
             {
-
-                IPEndPoint clientAddress = ((IPEndPoint)tcpClient.Client.RemoteEndPoint); // Gets the IP address of the new client
-
-                LoginData loginData = JsonSerializer.Deserialize(packet.data, LoginDataContext.Default.LoginData);
-
-                bool loginOrRegister = loginData.loginOrRegister; // True if client wants to login, false if client wants to register register
-                string username = loginData.username;
-                string hashedPassword = loginData.password;
-
-                AuthenticationResult authenticationResult = new AuthenticationResult(); // creates the thing that holds value for login/register result, db index, playername
-                Console.WriteLine($"({DateTime.Now}) Login data has arrived from player ({username})");
-
-                if (loginOrRegister == false) // Runs if client wants to register
+                if (packet.type == 1) // makes sure its really a login data packet
                 {
-                    authenticationResult = Database.RegisterUser(username, hashedPassword);
-                    if (authenticationResult.result == 1) // runs if registration was successful
+                    LoginData loginData = JsonSerializer.Deserialize<LoginData>(packet.data);
+
+                    bool loginOrRegister = loginData.lr; // True if client wants to login, false if client wants to register register
+                    string username = loginData.un;
+                    string hashedPassword = loginData.pw;
+
+                    AuthenticationResult authenticationResult = new AuthenticationResult(); // creates the thing that holds value for login/register result, db index, playername
+                    Console.WriteLine($"({DateTime.Now}) Login data has arrived from player ({username})");
+
+                    if (loginOrRegister == false) // Runs if client wants to register
+                    {
+                        authenticationResult = Database.RegisterUser(username, hashedPassword);
+                        if (authenticationResult.result == 1) // runs if registration was successful
+                        {
+                            authenticationResult = Database.LoginUser(username, hashedPassword, Server.connectedPlayers);
+                        }
+                    }
+                    else // Runs if client wants to login
                     {
                         authenticationResult = Database.LoginUser(username, hashedPassword, Server.connectedPlayers);
                     }
-                }
-                else if (loginOrRegister == true) // Runs if client wants to login
-                {
-                    authenticationResult = Database.LoginUser(username, hashedPassword, Server.connectedPlayers);
-                }
 
-                if (authenticationResult.result == 1)
-                {
-
-                    Server.connectedPlayers[freeSlotIndex] = new ConnectedPlayer
+                    if (authenticationResult.result == 1)
                     {
-                        databaseID = authenticationResult.dbIndex,
-                        tcpClient = tcpClient,
-                        tcpStream = tcpClient.GetStream(),
-                        tcpEndpoint = clientAddress,
-                        ipAddress = clientAddress.Address,
-                        tcpPort = clientAddress.Port,
-                        cancellationTokenSource = new CancellationTokenSource(),
-                        playerName = authenticationResult.playerName
-                    };
+                        IPEndPoint clientAddress = ((IPEndPoint)tcpClient.Client.RemoteEndPoint); // Gets the IP address of the new client
+                            
+                        Server.connectedPlayers[freeSlotIndex] = new ConnectedPlayer
+                        {
+                            databaseID = authenticationResult.dbIndex,
+                            tcpClient = tcpClient,
+                            tcpStream = tcpClient.GetStream(),
+                            tcpEndpoint = clientAddress,
+                            ipAddress = clientAddress.Address,
+                            tcpPort = clientAddress.Port,
+                            cancellationTokenSource = new CancellationTokenSource(),
+                            playerName = authenticationResult.playerName
+                        };
 
-                    InitialData initialData = new InitialData
+                        InitialData initialData = new InitialData
+                        {
+                            lr = authenticationResult.result, // value represents how the server responded to login, like if success or not
+                            i = freeSlotIndex, // client's assigned id
+                            mp = Server.maxPlayers, // max player amount
+                            tr = Server.tickRate,
+                            pda = PlayersManager.GetDataOfEveryConnectedPlayer()
+                        };
+                        string jsonData = JsonSerializer.Serialize(initialData);
+                        await PacketProcessor.SendTcp(1, jsonData, Server.connectedPlayers[freeSlotIndex]); // Type 1 means servers sends initial data to the new client
+                        Console.WriteLine($"({DateTime.Now}) Initial data has been sent to player ({username})");
+
+                        await PlayersManager.SendPlayerDataToEveryone();
+                        
+                        _ = PacketProcessor.ReceiveTcpData(Server.connectedPlayers[freeSlotIndex]);
+                        break;
+                    }
+                    else
                     {
-                        lr = authenticationResult.result, // value represents how the server responded to login, like if success or not
-                        i = freeSlotIndex, // client's assigned id
-                        mp = Server.maxPlayers, // max player amount
-                        tr = Server.tickrate
-                    };
-                    // Thread.Sleep(500);
-                    string jsonData = JsonSerializer.Serialize(initialData, InitialDataContext.Default.InitialData);
-                    await PacketProcessor.SendTcp(1, jsonData, Server.connectedPlayers[freeSlotIndex]); // Type 1 means servers sends initial data to the new client
-                    Console.WriteLine($"({DateTime.Now}) Initial data has been sent to player ({username})");
-
-                    _ = PacketProcessor.ReceiveTcpData(Server.connectedPlayers[freeSlotIndex]);
-                    break;
-                }
-                else
-                {
-                    await ConnectionRejected(tcpClient, authenticationResult);
+                        await ConnectionRejected(tcpClient, authenticationResult);
+                        break;
+                    }
                 }
             }
         }
-        Console.WriteLine(Monitoring.GetCurrentPlayerCount());
+        catch (Exception e)
+        {
+            Console.WriteLine(e);
+            throw;
+        }
     }
-    static async Task ConnectionRejected(TcpClient tcpClient, AuthenticationResult authenticationResult)
+
+    private static async Task ConnectionRejected(TcpClient tcpClient, AuthenticationResult authenticationResult)
     {
         NetworkStream stream = tcpClient.GetStream();
         ConnectedPlayer connectedPlayer = new ConnectedPlayer
@@ -140,7 +145,7 @@ public static class Authentication
             tr = 0
         };
 
-        string jsonData = JsonSerializer.Serialize(initialData, InitialDataContext.Default.InitialData);
+        string jsonData = JsonSerializer.Serialize(initialData);
         await PacketProcessor.SendTcp(1, jsonData, connectedPlayer); // Type 1 means servers sends initial data to the new client
         Thread.Sleep(1000); // need to wait before closing else the player wont receive the "authentication failed" message
         stream.Close();
@@ -149,27 +154,20 @@ public static class Authentication
     {
         try
         {
-            Console.WriteLine("Trying to authenticate udp packet");
             IPEndPoint udpIpEndpoint = udpEndpoint as IPEndPoint;
-            System.Console.WriteLine($"udpIpEndpoint: {udpIpEndpoint}");
             if (udpIpEndpoint == null) return null;
 
             foreach (ConnectedPlayer player in Server.connectedPlayers)
             {
                 if (player == null) continue;
-
-                // Console.WriteLine(player.udpEndpoint + " and " + udpEndpoint);
-
-                if (player.ipAddress.Equals(udpIpEndpoint.Address) && player.udpEndpoint == null) // checks if udp packet sender is authenticated player
+                if (player.ipAddress.Equals(udpIpEndpoint.Address) && player.udpEndpoint == null) // runs if ip address is in array but udp socket is not yet
                 {
-                    if (player.udpPort == 0) // if authenticated but its the first package, get its port and assign udp endpoint to authenticated player
-                    {
-                        player.udpPort = udpIpEndpoint.Port;
-                        player.udpEndpoint = udpEndpoint;
-                    }
+                    if (player.udpPort != 0) return player; // if authenticated but its the first package, get its port and assign udp endpoint to authenticated player
+                    player.udpPort = udpIpEndpoint.Port;
+                    player.udpEndpoint = udpIpEndpoint;
                     return player;
                 }
-                else if (player.udpEndpoint != null && udpEndpoint.Equals(player.udpEndpoint))
+                else if (player.udpEndpoint != null && udpEndpoint.Equals(player.udpEndpoint)) // runs if ip address and udp socket is inside the array
                 {
                     return player;
                 }

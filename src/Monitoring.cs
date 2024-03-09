@@ -22,7 +22,8 @@ public static class Monitoring
             Thread.Sleep(1000);
         }
     }
-    static void MonitorValues()
+
+    private static void MonitorValues()
     {
         Console.Clear();
         Console.WriteLine($"TCP port: {Server.tcpPort}, UDP port: {Server.udpPort} | Players: {GetCurrentPlayerCount()}/{Server.maxPlayers}");
@@ -40,7 +41,8 @@ public static class Monitoring
             Console.WriteLine(Server.connectedPlayers[i]);
         }
     }
-    static async Task PingClientsUdp()
+
+    private static async Task PingClientsUdp()
     {
         for (byte i = 0; i < Server.maxPlayers; i++)
         {

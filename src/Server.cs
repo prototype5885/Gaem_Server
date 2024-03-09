@@ -1,13 +1,11 @@
 using System.Net;
 using System.Net.Sockets;
 using System.Runtime.InteropServices;
-using System.Security.Cryptography;
-using System.Text;
 
 public static class Server
 {
     public static TcpListener tcpListener;
-    public static Socket serverUdpSocket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
+    public static readonly Socket serverUdpSocket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
 
     public static int tcpPort;
     public static int udpPort;
@@ -15,12 +13,12 @@ public static class Server
     public static ConnectedPlayer[] connectedPlayers;
 
     public static byte maxPlayers = 10;
-    public static int tickrate = 10;
+    public static int tickRate = 10;
 
     private static void Main(string[] args)
     {
         maxPlayers = 10;
-        tickrate = 10;
+        tickRate = 10;
 
         tcpPort = 1942;
         udpPort = tcpPort + 1;
@@ -52,6 +50,5 @@ public static class Server
         // Task.Run(() => Monitoring.RunEverySecond());
         Task.Run(() => Authentication.WaitForPlayerToConnect());
         Thread.Sleep(Timeout.Infinite);
-
     }
 }

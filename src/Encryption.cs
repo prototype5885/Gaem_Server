@@ -5,20 +5,20 @@ using System.Text;
 
 public static class Encryption
 {
-    public static byte[] encryptionKey;
-    const byte ivLength = 16;
+    private static byte[] encryptionKey;
+    private const byte ivLength = 16;
     public static readonly bool encryption = true;
 
     public static void GetEncryptionKey()
     {
-        string path = "encryption_key.txt";
-        string keyString = String.Empty;
+        const string path = "encryption_key.txt";
+        string keyString = "";
 
         if (!File.Exists(path))
         {
             File.Create(path).Dispose();
-
-            using (TextWriter writer = new StreamWriter(path))
+        
+            using TextWriter writer = new StreamWriter(path);
             {
                 keyString = "0123456789ABCDEF0123456789ABCDEF";
                 writer.WriteLine(keyString); // default encryption key
@@ -33,12 +33,21 @@ public static class Encryption
                 reader.Close();
             }
         }
-        encryptionKey = Encoding.ASCII.GetBytes(keyString);
+
+        if (keyString != null) 
+            encryptionKey = Encoding.ASCII.GetBytes(keyString);
+        else
+            throw new Exception("Encryption key string is empty");
+
+        if (encryptionKey.Length != 32)
+        {
+            throw new Exception("Encryption key length is wrong, must be 32");
+        }
     }
     public static byte[] Encrypt(string message)
     {
 
-        byte[] unencryptedBytes = Encoding.ASCII.GetBytes(message); // turns the string into byte array
+        byte[] unencryptedBytes = Encoding.UTF8.GetBytes(message); // turns the string into byte array
         byte[] randomIV = new byte[16]; // creates a byte array of 16 length for IV
 
         using (RandomNumberGenerator rng = RandomNumberGenerator.Create())
