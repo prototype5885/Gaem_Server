@@ -6,12 +6,13 @@ using System.Xml.Linq;
 
 public class Packet
 {
-    public byte type { get; set; }
+    public uint type { get; set; }
     public string data { get; set; }
 }
+
 public class ConnectedPlayer
 {
-    //public byte index { get; set; }
+    public byte index { get; set; }
     public int databaseID { get; set; }
     public string playerName { get; set; }
     public TcpClient tcpClient { get; set; }
@@ -50,13 +51,15 @@ public class ConnectedPlayer
             case 1:
                 statusMessage = "Ingame";
                 break;
-
         }
+
         if (status == 0) latency = 999;
         latency = Math.Clamp(latency, 0, 999);
-        return $"Addr: {ipAddress}, tcp: {tcpPort}, udp: {udpPort} | db id: {databaseID} | Name: {playerName} | Status: {statusMessage} | Latency: {latency} | Timeout in: {timeUntillTimeout} | Pos XYZ: {position}";
+        return
+            $"Addr: {ipAddress}, tcp: {tcpPort}, udp: {udpPort} | db id: {databaseID} | Name: {playerName} | Status: {statusMessage} | Latency: {latency} | Timeout in: {timeUntillTimeout} | Pos XYZ: {position}";
     }
 }
+
 public class AuthenticationResult
 {
     public byte result { get; set; }
@@ -68,4 +71,3 @@ public class AuthenticationResult
     //    return $"loginResult: {loginResult} dbIndex: {dbIndex}";
     //}
 }
-

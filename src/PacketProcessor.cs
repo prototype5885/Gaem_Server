@@ -20,6 +20,7 @@ public static class PacketProcessor
             Authentication.DisconnectClient(connectedPlayer);
         }
     }
+
     public static async Task SendUdp(byte commandType, string message, ConnectedPlayer connectedPlayer)
     {
         if (connectedPlayer.udpEndpoint != null)
@@ -29,20 +30,21 @@ public static class PacketProcessor
             await Server.serverUdpSocket.SendToAsync(messageBytes, SocketFlags.None, connectedPlayer.udpEndpoint);
         }
     }
+
     public static async Task ReceiveTcpData(ConnectedPlayer connectedPlayer)
     {
         try
         {
             Console.WriteLine($"({DateTime.Now}) Listening to tcp data from player ({connectedPlayer.playerName})");
             CancellationToken cancellationToken = connectedPlayer.cancellationTokenSource.Token;
-            
+
             Byte[] buffer = new Byte[4096];
             while (!cancellationToken.IsCancellationRequested)
             {
                 int bytesRead = await connectedPlayer.tcpStream.ReadAsync(new ArraySegment<byte>(buffer), cancellationToken);
                 Packet[] packets = ProcessBuffer(buffer, bytesRead);
                 ProcessPackets(packets, connectedPlayer);
-                
+
                 Monitoring.receivedBytesPerSecond += bytesRead;
             }
         }
@@ -56,6 +58,7 @@ public static class PacketProcessor
             Authentication.DisconnectClient(connectedPlayer);
         }
     }
+
     public static async Task ReceiveUdpData()
     {
         try
@@ -65,13 +68,14 @@ public static class PacketProcessor
             {
                 EndPoint udpEndPoint = new IPEndPoint(IPAddress.Any, 0);
                 SocketReceiveFromResult receivedMessage = await Server.serverUdpSocket.ReceiveFromAsync(new ArraySegment<byte>(buffer), SocketFlags.None, udpEndPoint);
-                
+
                 ConnectedPlayer connectedPlayer = Authentication.CheckAuthenticationOfUdpClient(receivedMessage.RemoteEndPoint);
                 if (connectedPlayer != null)
                 {
                     Packet[] packets = ProcessBuffer(buffer, receivedMessage.ReceivedBytes);
                     ProcessPackets(packets, connectedPlayer);
                 }
+
                 Monitoring.receivedBytesPerSecond += receivedMessage.ReceivedBytes;
             }
         }
@@ -80,6 +84,7 @@ public static class PacketProcessor
             Console.WriteLine("Error receiving UDP packet");
         }
     }
+
     public static Packet[] ProcessBuffer(byte[] buffer, int byteLength) // processes bytes received from the buffer
     {
         string receivedBytesInString; // creates this empty string for to be used later
@@ -115,6 +120,7 @@ public static class PacketProcessor
             };
             packets[i] = packet;
         }
+
         return packets;
     }
 
@@ -126,27 +132,27 @@ public static class PacketProcessor
         }
     }
 
-    private static void ProcessDataSentByPlayer(Packet packet, ConnectedPlayer connectedClient)
+    private static void ProcessDataSentByPlayer(Packet packet, ConnectedPlayer connectedPlayer)
     {
         switch (packet.type)
         {
             // Type 0 means client answers the ping
             case 0:
-                connectedClient.udpPingAnswered = true;
-                connectedClient.status = 1;
-                PlayersManager.CalculatePlayerLatency(connectedClient);
+                connectedPlayer.udpPingAnswered = true;
+                connectedPlayer.status = 1;
+                PlayersManager.CalculatePlayerLatency(connectedPlayer);
                 break;
             // Type 2 means client is sending a chat message
             case 2:
-                Console.WriteLine(packet.data);
-                Task.Run(() => PlayersManager.SendChatMessageToEveryone(connectedClient, packet.data));
+                Task.Run(() => PlayersManager.SendChatMessageToEveryone(connectedPlayer, packet.data));
                 break;
             // Type 3 means client is sending its own position to the server
             case 3:
-                connectedClient.position = JsonSerializer.Deserialize<PlayerPosition>(packet.data);
+                connectedPlayer.position = JsonSerializer.Deserialize<PlayerPosition>(packet.data);
                 break;
         }
     }
+
     private static byte[] EncodeMessage(byte commandType, string message)
     {
         if (Encryption.encryption)
@@ -159,4 +165,3 @@ public static class PacketProcessor
         }
     }
 }
-

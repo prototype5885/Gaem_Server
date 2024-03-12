@@ -12,8 +12,8 @@ public static class Server
 
     public static ConnectedPlayer[] connectedPlayers;
 
-    public static byte maxPlayers = 10;
-    public static int tickRate = 10;
+    public static byte maxPlayers;
+    public static int tickRate;
 
     private static void Main(string[] args)
     {

@@ -19,6 +19,7 @@ public static class PlayersManager
 
                 everyPlayersPosition[i] = Server.connectedPlayers[i].position;
             }
+
             foreach (ConnectedPlayer connectedPlayer in Server.connectedPlayers)
             {
                 if (connectedPlayer == null) continue;
@@ -34,11 +35,13 @@ public static class PlayersManager
             }
         }
     }
+
     public static void CalculatePlayerLatency(ConnectedPlayer connectedPlayer)
     {
         TimeSpan timeSpan = connectedPlayer.pingRequestTime - DateTime.UtcNow;
         connectedPlayer.latency = Math.Abs(timeSpan.Milliseconds) / 2;
     }
+
     public static async Task SendChatMessageToEveryone(ConnectedPlayer messageSenderPlayer, string message)
     {
         ChatMessage chatMessage = new ChatMessage
@@ -46,21 +49,21 @@ public static class PlayersManager
             i = (byte)Array.IndexOf(Server.connectedPlayers, messageSenderPlayer),
             m = message
         };
-        
+
+        string jsonData = JsonSerializer.Serialize(chatMessage);
         foreach (ConnectedPlayer player in Server.connectedPlayers)
         {
             if (player == null) continue;
-            string jsonData = JsonSerializer.Serialize(chatMessage);
             await PacketProcessor.SendTcp(2, jsonData, player); // type 2 means relaying a message to every players
         }
     }
 
     public static async Task SendPlayerDataToEveryone()
     {
+        string jsonData = JsonSerializer.Serialize(GetDataOfEveryConnectedPlayer());
         foreach (ConnectedPlayer player in Server.connectedPlayers)
         {
             if (player == null) continue;
-            string jsonData = JsonSerializer.Serialize(GetDataOfEveryConnectedPlayer());
             await PacketProcessor.SendTcp(4, jsonData, player); // type 4
         }
     }
@@ -75,9 +78,11 @@ public static class PlayersManager
                 playerDataArray[i] = GetDataOfConnectedPlayer(i);
             }
         }
+
         return playerDataArray;
     }
-    public static PlayerData GetDataOfConnectedPlayer(byte index) // runs whenever a player joins
+
+    private static PlayerData GetDataOfConnectedPlayer(byte index) // runs whenever a player joins
     {
         PlayerData playerData = new PlayerData
         {

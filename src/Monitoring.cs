@@ -11,6 +11,7 @@ public static class Monitoring
     public static int receivedBytesPerSecond = 0;
 
     public const byte timeoutTime = 4;
+
     public static async Task RunEverySecond()
     {
         while (true)
@@ -38,6 +39,7 @@ public static class Monitoring
                 Console.WriteLine("Free slot");
                 continue;
             }
+
             Console.WriteLine(Server.connectedPlayers[i]);
         }
     }
@@ -46,8 +48,6 @@ public static class Monitoring
     {
         for (byte i = 0; i < Server.maxPlayers; i++)
         {
-            // try
-            // {
             if (Server.connectedPlayers[i] == null) continue;
 
             if (Server.connectedPlayers[i].udpPingAnswered == false) // runs if connected client hasn't replied to ping
@@ -70,13 +70,9 @@ public static class Monitoring
             Server.connectedPlayers[i].pingRequestTime = DateTime.UtcNow;
 
             await PacketProcessor.SendTcp(0, "", Server.connectedPlayers[i]);
-            // }
-            //     catch (Exception ex)
-            //     {
-            //     Console.WriteLine(ex);
-            // }
         }
     }
+
     public static byte GetCurrentPlayerCount()
     {
         byte playerCount = 0;
@@ -87,7 +83,7 @@ public static class Monitoring
                 playerCount++;
             }
         }
+
         return playerCount;
     }
 }
-

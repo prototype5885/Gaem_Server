@@ -17,7 +17,7 @@ public static class Encryption
         if (!File.Exists(path))
         {
             File.Create(path).Dispose();
-        
+
             using TextWriter writer = new StreamWriter(path);
             {
                 keyString = "0123456789ABCDEF0123456789ABCDEF";
@@ -34,7 +34,7 @@ public static class Encryption
             }
         }
 
-        if (keyString != null) 
+        if (keyString != null)
             encryptionKey = Encoding.ASCII.GetBytes(keyString);
         else
             throw new Exception("Encryption key string is empty");
@@ -44,11 +44,11 @@ public static class Encryption
             throw new Exception("Encryption key length is wrong, must be 32");
         }
     }
+
     public static byte[] Encrypt(string message)
     {
-
         byte[] unencryptedBytes = Encoding.UTF8.GetBytes(message); // turns the string into byte array
-        byte[] randomIV = new byte[16]; // creates a byte array of 16 length for IV
+        byte[] randomIV = new byte[ivLength]; // creates a byte array of 16 length for IV
 
         using (RandomNumberGenerator rng = RandomNumberGenerator.Create())
         {
@@ -66,17 +66,18 @@ public static class Encryption
                 {
                     csEncrypt.Write(unencryptedBytes, 0, unencryptedBytes.Length);
                     csEncrypt.FlushFinalBlock();
-                    byte[] encryptedMessage = msEncrypt.ToArray();
+                    byte[] encryptedBytes = msEncrypt.ToArray();
 
-                    byte[] encryptedBytesWithIV = new byte[encryptedMessage.Length + ivLength]; // creates a byte array to store both the message and the iv
+                    byte[] encryptedBytesWithIV = new byte[encryptedBytes.Length + ivLength]; // creates a byte array to store both the message and the iv
                     Array.Copy(randomIV, encryptedBytesWithIV, ivLength); // copies the IV to the beginning of the array
-                    Array.Copy(encryptedMessage, 0, encryptedBytesWithIV, ivLength, encryptedMessage.Length); // copies the message after the IV
+                    Array.Copy(encryptedBytes, 0, encryptedBytesWithIV, ivLength, encryptedBytes.Length); // copies the message after the IV
 
                     return encryptedBytesWithIV;
                 }
             }
         }
     }
+
     public static string Decrypt(byte[] encryptedMessageWithIV)
     {
         byte[] extractedIV = new byte[ivLength]; // creates a byte array for the received IV
