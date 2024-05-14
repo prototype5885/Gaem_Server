@@ -6,12 +6,13 @@ namespace Gaem_server.ClassesShared;
 internal partial class PlayerDataContext : JsonSerializerContext
 {
 }
-[JsonSerializable(typeof(List<PlayerData>))]
-internal partial class ListPlayerDataContext : JsonSerializerContext
+[JsonSerializable(typeof(PlayerData[]))]
+internal partial class PlayerDataArrayContext : JsonSerializerContext
 {
 }
 public class PlayerData
 {
-    public int i { get; set; } // player index
-    public string un { get; set; } // username
+    public int i { get; set; } = -1; // player index
+    public int s { get; set; } // status of player connection
+    public string un { get; set; } = "Unnamed"; // username
 }

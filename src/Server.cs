@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
 using System.Text.Json;
@@ -22,8 +23,8 @@ public class Server
     private readonly int tcpPort;
     public readonly TcpListener tcpListener;
 
-    public ConnectedPlayer[] connectedPlayers;
-    public Database database;
+    public readonly Player[] players;
+    public readonly Database database;
 
     public readonly ConcurrentQueue<Packet> packetsToProcess = new ConcurrentQueue<Packet>();
 
@@ -38,7 +39,7 @@ public class Server
         tcpPort = configFile.TcpPort;
 
         // creates array that store information about players and empty slots
-        connectedPlayers = new ConnectedPlayer[maxPlayers];
+        players = new Player[maxPlayers];
 
         // Starts TCP server
         tcpListener = new TcpListener(IPAddress.Any, tcpPort);
@@ -56,12 +57,31 @@ public class Server
         HandleNewPlayers handleNewPlayers = new HandleNewPlayers(this);
         Task.Run(() => handleNewPlayers.run());
 
-        while (true)
-        {
-            await ProcessPacketsSentByPlayers();
+        // server loop
+        long startTime;
+        long endTime;
+        int elapsedTime;
+        int sleepTime;
+        while (true) {
+            // starts the loop
+            startTime = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+
+            ProcessPacketsSentByPlayers();
+
+            // ends the loop
+            endTime = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            elapsedTime = Convert.ToInt32(endTime - startTime);
+            sleepTime = 99 - elapsedTime;
+
+
+            if (sleepTime < 0) {
+                logger.Debug($"Skipped sleep time, sleepTime: {sleepTime}");
+                continue;
+            }
+            Thread.Sleep(sleepTime);
+            logger.Debug($"Tick finished calculations in: {elapsedTime} ms, then slept for: {DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - endTime} ms");
         }
         
-
 
         // if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
         // {
@@ -85,45 +105,38 @@ public class Server
         // Thread.Sleep(Timeout.Infinite);
     }
     
-    public async Task SendDataOfConnectedPlayers() {
-        // making a list
-        logger.Debug("Making list of each player's data for sending to everyone...");
-        List<PlayerData> playerDataList = new List<PlayerData>();
-        foreach (ConnectedPlayer player in connectedPlayers) {
-            if (player == null) continue;
+    public PlayerData GetDataOfPlayer(Player player) {
+        // status means if player is connecting or disconnecting
+        PlayerData playerData = new PlayerData();
+        playerData.i = player.index;
+        playerData.s = player.status;
+        playerData.un = player.playerName;
 
-            PlayerData playerData = new PlayerData();
-            playerData.i = player.index;
-            playerData.un = player.playerName;
+        return playerData;
+    }
+    
+    public PlayerData[] GetDataOfEveryPlayers() {
+        PlayerData[] playerDataArray = new PlayerData[maxPlayers];
+        for (int i = 0; i < maxPlayers; i++) {
+            if (players[i] == null) continue;
 
-            playerDataList.Add(playerData);
+            PlayerData playerData = new PlayerData
+            {
+                i = players[i].index,
+                s = players[i].status,
+                un = players[i].playerName
+            };
+
+            playerDataArray[i] = playerData;
         }
-
-        // sending it to each player
-        foreach (ConnectedPlayer player in connectedPlayers) {
-            if (player != null) {
-                logger.Debug($"Sending list of each player's data to: {player.playerName}");
-                try {
-                    byte[] bytesToSend = PacketProcessor.MakePacketForSending(3, playerDataList, player.aesKey);
-                    await SendTcp(bytesToSend, player.tcpClient.GetStream());
-                } catch (Exception e) {
-                    logger.Error(e.ToString());
-                }
-            }
-        }
+        return playerDataArray;
     }
 
-    public async Task SendTcp(byte[] bytesToSend, NetworkStream networkStream)
+    private void UpdatePlayerPosition()
     {
-        try
-        {
-            await networkStream.WriteAsync(bytesToSend);
-        }
-        catch (Exception e)
-        {
-            logger.Error(e.ToString());
-        }
+        
     }
+    
     public void DisconnectPlayer(TcpClient tcpClient)
     {
         string ipAddress = GetIpAddress(tcpClient);
@@ -132,34 +145,95 @@ public class Server
         try
         {
             tcpClient.Close();
-            logger.Debug($"Closed connection for {ipAddress}");
+            // logger.Debug($"Closed connection for {ipAddress}");
         }
         catch (IOException e)
         {
             logger.Error($"Error closing connection for {ipAddress}: {e.ToString}");
         }
 
-        logger.Debug($"Searching for {ipAddress} in the player list to remove using tcp socket...");
+        logger.Debug($"Searching for {ipAddress} in the player array to remove...");
         for (int i = 0; i < maxPlayers; i++)
         {
-            if (connectedPlayers[i] != null && connectedPlayers[i].tcpClient.Equals(tcpClient))
+            if (players[i] != null && players[i].tcpClient.Equals(tcpClient))
             {
-                ConnectedPlayer playerToDisconnect = connectedPlayers[i];
-                logger.Debug($"Found {playerToDisconnect.playerName} in the player list, removing...");
-                connectedPlayers[i] = null;
-                logger.Debug($"Removed player from the player list, slot status: {connectedPlayers[i]}");
-                return;
+                logger.Debug($"Found {players[i].playerName} in the player list, removing...");
+                players[i] = null;
+                // logger.Debug($"Removed player from the player list, slot status: {players[i]}");
+                
+                logger.Debug("Sending the disconnection info to each player...");
+                PlayerData playerData = new PlayerData
+                {
+                    i = i,
+                    s = 0
+                };
+
+                SendToEveryone(20, playerData);
             }
         }
-        logger.Debug("Player not present in the player list was disconnected successfully");
     }
+    
+    private int GetConnectedPlayersCount() {
+        int playerCount = 0;
+        foreach (Player player in players) {
+            if (player != null) {
+                playerCount++;
+            }
+        }
+        return playerCount;
+    }
+    
+    public void SendToOnePlayer(int type, Object obj, Player player) {
+        try {
+            logger.Debug($"Sending message type {type} to: {player.playerName}");
+            byte[] bytesToSend = PacketProcessor.MakePacketForSending(type, obj, player.aesKey);
+            SendTcp(bytesToSend, player.tcpClient);
+        } catch (Exception e) {
+            logger.Error(e);
+        }
+    }
+    
+    public void SendToEveryoneExcept(int type, Object obj, Player playerToSkip) {
+        foreach (Player player in players) {
+            if (player == null || player == playerToSkip) continue;
+            try {
+                SendToOnePlayer(type, obj, player);
+            } catch (Exception e) {
+                logger.Error(e);
+            }
+        }
+    }
+
+    public void SendToEveryone(int type, Object obj) {
+        foreach (Player player in players) {
+            if (player == null) continue;
+            try {
+                SendToOnePlayer(type, obj, player);
+            } catch (Exception e) {
+                logger.Error(e);
+            }
+        }
+    }
+
+    public void SendTcp(byte[] bytesToSend, TcpClient tcpClient)
+    {
+        try
+        {
+            tcpClient.GetStream().Write(bytesToSend);
+        }
+        catch (Exception e)
+        {
+            logger.Error(e.ToString());
+        }
+    }
+    
     public string GetIpAddress(TcpClient tcpClient)
     {
         IPEndPoint endPoint = (IPEndPoint)tcpClient.Client.RemoteEndPoint;
         return endPoint.Address.ToString();
     }
 
-    private async Task ProcessPacketsSentByPlayers()
+    private void ProcessPacketsSentByPlayers()
     {
         while (!packetsToProcess.IsEmpty)
         {
@@ -167,9 +241,9 @@ public class Server
             {
                 switch (packet.type)
                 {
-                    case 4:
+                    case 30:
                         logger.Debug($"Received a chat message from {packet.owner.playerName}, message: {packet.json}");
-                        await SendChatMessageToEveryone(packet.owner, packet.json);
+                        SendChatMessageToEveryone(packet.owner, packet.json);
                         break;
                         //            case 3:
                         //                UpdatePlayerPosition(connectedPlayer, packet.data);
@@ -179,25 +253,17 @@ public class Server
         }
     }
 
-    private async Task SendChatMessageToEveryone(ConnectedPlayer msgSender, String chatMessageJson)
+    private void SendChatMessageToEveryone(Player msgSender, string chatMessageJson)
     {
         try
         {
             logger.Debug($"Making ChatMessage object and then packet for the message {msgSender.playerName} sent");
             // prepares object
-            ClassesShared.ChatMessage chatMessage = JsonSerializer.Deserialize(chatMessageJson, ChatMessageContext.Default.ChatMessage);
+            ChatMessage chatMessage = JsonSerializer.Deserialize(chatMessageJson, ChatMessageContext.Default.ChatMessage);
             chatMessage.i = msgSender.index;
 
             // send the message to each connected player
-            logger.Debug($"Sending chat message from {msgSender.playerName} to all players...");
-            foreach (ConnectedPlayer player in connectedPlayers)
-            {
-                if (player != null)
-                {
-                    byte[] bytesToSend = PacketProcessor.MakePacketForSending(4, chatMessage, player.aesKey);
-                    await SendTcp(bytesToSend, player.tcpClient.GetStream());
-                }
-            }
+            SendToEveryone(30, chatMessage);
         } 
         catch (Exception e)
         {

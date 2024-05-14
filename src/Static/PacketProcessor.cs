@@ -20,10 +20,13 @@ public static class PacketProcessor
             case 1:
                 jsonBytes = JsonSerializer.SerializeToUtf8Bytes(obj, InitialDataContext.Default.InitialData);
                 break;
-            case 3:
-                jsonBytes = JsonSerializer.SerializeToUtf8Bytes(obj, ListPlayerDataContext.Default.ListPlayerData);
+            case 20:
+                jsonBytes = JsonSerializer.SerializeToUtf8Bytes(obj, PlayerDataContext.Default.PlayerData);
                 break;
-            case 4:
+            case 21:
+                jsonBytes = JsonSerializer.SerializeToUtf8Bytes(obj, PlayerDataArrayContext.Default.PlayerDataArray);
+                break;
+            case 30:
                 jsonBytes = JsonSerializer.SerializeToUtf8Bytes(obj, ChatMessageContext.Default.ChatMessage);
                 break;
         }
@@ -82,7 +85,7 @@ public static class PacketProcessor
         return mergedArray;
     }
 
-    public static List<Packet> ProcessReceivedBytes(byte[] receivedBytes, ConnectedPlayer packetOwner)
+    public static List<Packet> ProcessReceivedBytes(byte[] receivedBytes, Player packetOwner)
     {
         // the list that will hold the separated encrypted packets
         List<Packet> packets = new List<Packet>();

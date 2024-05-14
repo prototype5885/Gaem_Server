@@ -45,13 +45,19 @@ public class HandleNewPlayers(Server server)
                 }
 
                 // starts the authentication that will return player instance on success
-                ConnectedPlayer connectedPlayer = await StartAuthentication(tcpClient, aesKey, ipAddress);
+                Player player = await StartAuthentication(tcpClient, aesKey, ipAddress);
 
-                if (connectedPlayer != null)
+                if (player != null)
                 {
-                    logger.Info($"Authentication of {ipAddress} ({connectedPlayer.playerName}) was success");
-                    await server.SendDataOfConnectedPlayers();
-                    ReceiveTcpPacket receiveTcpPacket = new ReceiveTcpPacket(server, connectedPlayer);
+                    logger.Debug($"Sending data of player {player.playerName} to everyone except the new player...");
+                    PlayerData playerData = server.GetDataOfPlayer(player);
+                    server.SendToEveryoneExcept(20, playerData, player);
+                    
+                    logger.Debug($"Sending every player's data to the new player {player.playerName}...");
+                    PlayerData[] playerDataArray = server.GetDataOfEveryPlayers();
+                    server.SendToOnePlayer(21, playerDataArray, player);
+                    
+                    ReceiveTcpPacket receiveTcpPacket = new ReceiveTcpPacket(server, player);
                     Task.Run(async () => await receiveTcpPacket.run());
 
                 }
@@ -88,7 +94,7 @@ public class HandleNewPlayers(Server server)
         logger.Debug($"Handshake request received from {ipAddress}, sending public key to the player...");
 
         // sending public key to player
-        await server.SendTcp(EncryptionRsa.PublicKeyToByteArray(), tcpClient.GetStream());
+        server.SendTcp(EncryptionRsa.PublicKeyToByteArray(), tcpClient);
 
         // waiting for player to send its own public key
         logger.Debug($"Waiting now for {ipAddress} to send it's own public key...");
@@ -118,7 +124,7 @@ public class HandleNewPlayers(Server server)
         logger.Debug($"Sending a random AES key to {ipAddress}");
         byte[] aesKey = EncryptionAes.GenerateRandomKey(16);
         byte[] encryptedAesKey = EncryptionRsa.Encrypt(aesKey, clientPublicKey);
-        await server.SendTcp(encryptedAesKey, tcpClient.GetStream());
+        server.SendTcp(encryptedAesKey, tcpClient);
 
         // testing if it works
         //        logger.debug("Sending test...");
@@ -144,33 +150,33 @@ public class HandleNewPlayers(Server server)
         return aesKey;
     }
 
-    private async Task<ConnectedPlayer> StartAuthentication(TcpClient tcpClient, byte[] aesKey, string ipAddress)
+    private async Task<Player> StartAuthentication(TcpClient tcpClient, byte[] aesKey, string ipAddress)
     {
         logger.Debug($"Started authentication for {ipAddress}...");
 
-        ConnectedPlayer connectedPlayer = new ConnectedPlayer();
+        Player newPlayer = new Player();
 
-        connectedPlayer.tcpClient = tcpClient;
-        connectedPlayer.aesKey = aesKey;
+        newPlayer.tcpClient = tcpClient;
+        newPlayer.aesKey = aesKey;
 
         // find which player slot is free
         logger.Debug($"Searching a free slot for {ipAddress}...");
-        connectedPlayer.index = -1;
-        for (int i = 0; i < server.connectedPlayers.Length; i++)
+        newPlayer.index = -1;
+        for (int i = 0; i < server.players.Length; i++)
         {
-            if (server.connectedPlayers[i] == null)
+            if (server.players[i] == null)
             {
-                connectedPlayer.index = i;
-                logger.Debug($"Found free slot at slot {connectedPlayer.index}");
+                newPlayer.index = i;
+                logger.Debug($"Found free slot at slot {newPlayer.index}");
                 break;
             }
         }
 
         // runs if server is full
-        if (connectedPlayer.index == -1)
+        if (newPlayer.index == -1)
         {
             logger.Debug($"Server is full, rejecting {ipAddress}");
-            await SendNegativeResponseAndDisconnect(tcpClient, 7, connectedPlayer.aesKey, ipAddress);
+            SendNegativeResponseAndDisconnect(tcpClient, 7, newPlayer.aesKey, ipAddress);
             return null;
         }
 
@@ -180,7 +186,7 @@ public class HandleNewPlayers(Server server)
 
         // read and process the LoginData sent by the player
         logger.Debug($"Reading LoginData sent by {ipAddress}");
-        List<Packet> packets = PacketProcessor.ProcessReceivedBytes(receivedBytes, connectedPlayer);
+        List<Packet> packets = PacketProcessor.ProcessReceivedBytes(receivedBytes, newPlayer);
 
         LoginData loginData = null;
         foreach (Packet packet in packets) 
@@ -216,7 +222,7 @@ public class HandleNewPlayers(Server server)
             if (loginData.un.Length < 2 || loginData.un.Length > 16)
             {
                 logger.Debug($"Player has {loginData.un} chosen too long or too short name, registration failed");
-                await SendNegativeResponseAndDisconnect(tcpClient, 5, connectedPlayer.aesKey, ipAddress);
+                SendNegativeResponseAndDisconnect(tcpClient, 5, newPlayer.aesKey, ipAddress);
                 return null;
             }
 
@@ -227,7 +233,7 @@ public class HandleNewPlayers(Server server)
             if (regDatabasePlayer != null)
             {
                 logger.Debug($"Player name {loginData.un} already exists in the database, registration failed");
-                await SendNegativeResponseAndDisconnect(tcpClient, 6, connectedPlayer.aesKey, ipAddress);
+                SendNegativeResponseAndDisconnect(tcpClient, 6, newPlayer.aesKey, ipAddress);
                 return null;
             }
            
@@ -241,14 +247,14 @@ public class HandleNewPlayers(Server server)
 
         // searches if player is already connected to the server
         logger.Debug($"Checking if player {loginData.un} is connected already...");
-        foreach (ConnectedPlayer player in server.connectedPlayers)
+        foreach (Player player in server.players)
         {
             if (player == null)
                 continue;
             if (loginData.un.Equals(player.playerName))
             {
                 logger.Debug($"Player {loginData.un} is already connected, login failed");
-                await SendNegativeResponseAndDisconnect(tcpClient, 4, connectedPlayer.aesKey, ipAddress);
+                SendNegativeResponseAndDisconnect(tcpClient, 4, newPlayer.aesKey, ipAddress);
                 return null;
             }
         }
@@ -261,7 +267,7 @@ public class HandleNewPlayers(Server server)
         if (logDatabasePlayer == null)
         {
             logger.Debug($"Player {loginData.un} not found in database, login failed.");
-            await SendNegativeResponseAndDisconnect(tcpClient, 3, connectedPlayer.aesKey, ipAddress);
+            SendNegativeResponseAndDisconnect(tcpClient, 3, newPlayer.aesKey, ipAddress);
             return null;
         }
 
@@ -270,29 +276,29 @@ public class HandleNewPlayers(Server server)
         if (!loginData.pw.Equals(logDatabasePlayer.password))
         {
             logger.Debug($"Player {loginData.un} has entered wrong password, login failed");
-            await SendNegativeResponseAndDisconnect(tcpClient, 2, connectedPlayer.aesKey, ipAddress);
+            SendNegativeResponseAndDisconnect(tcpClient, 2, newPlayer.aesKey, ipAddress);
             return null;
         }
 
         // login was a success
         logger.Debug($"Successful login for player {loginData.un}");
-        connectedPlayer.databaseID = logDatabasePlayer.id;
-        connectedPlayer.playerName = logDatabasePlayer.name;
+        newPlayer.databaseID = logDatabasePlayer.id;
+        newPlayer.playerName = logDatabasePlayer.name;
 
         // creating InitialData object
         logger.Debug($"Creating InitialData object to be sent to {loginData.un}");
         InitialData initialData = new InitialData();
         initialData.loginResultValue = 1;
-        initialData.index = connectedPlayer.index;
+        initialData.index = newPlayer.index;
         initialData.maxPlayers = server.maxPlayers;
         initialData.tickRate = server.tickRate;
 
         // reply back to the player about the authentication success
-        logger.Debug($"Sending positive reply about authentication back to {connectedPlayer.playerName}...");
+        logger.Debug($"Sending positive reply about authentication back to {newPlayer.playerName}...");
         try
         {
-            byte[] bytesToSend = PacketProcessor.MakePacketForSending(1, initialData, connectedPlayer.aesKey);
-            await server.SendTcp(bytesToSend, tcpClient.GetStream());
+            byte[] bytesToSend = PacketProcessor.MakePacketForSending(1, initialData, newPlayer.aesKey);
+            server.SendTcp(bytesToSend, tcpClient);
         }
         catch (Exception e)
         {
@@ -305,24 +311,28 @@ public class HandleNewPlayers(Server server)
         //server.database.UpdateLastLoginIpAddress(connectedPlayer);
 
         // adds the new player to the list of connected players
-        logger.Debug($"Adding player {connectedPlayer.playerName} to the list of connected players...");
-        server.connectedPlayers[connectedPlayer.index] = connectedPlayer;
+        logger.Debug($"Adding player {newPlayer.playerName} to the list of connected players...");
+        server.players[newPlayer.index] = newPlayer;
 
         // returns success
-        return connectedPlayer;
+        logger.Info($"Authentication of {ipAddress} ({newPlayer.playerName}) was success");
+        newPlayer.status = 1;
+        return newPlayer;
     }
 
-    private async Task SendNegativeResponseAndDisconnect(TcpClient tcpClient, int resultValue, byte[] aesKey, string ipAddress)
+    private void SendNegativeResponseAndDisconnect(TcpClient tcpClient, int resultValue, byte[] aesKey, string ipAddress)
     {
         try
         {
             logger.Debug($"Sending negative initial data with value {resultValue} to the failed player...");
 
-            InitialData initialData = new InitialData();
-            initialData.loginResultValue = resultValue;
+            InitialData initialData = new InitialData
+            {
+                loginResultValue = resultValue
+            };
 
             byte[] bytesToSend = PacketProcessor.MakePacketForSending(1, initialData, aesKey);
-            await server.SendTcp(bytesToSend, tcpClient.GetStream());
+            server.SendTcp(bytesToSend, tcpClient);
 
             logger.Debug("Closing connection of the failed player in 1 second...");
             Thread.Sleep(1000);

@@ -6,11 +6,11 @@ using log4net;
 
 namespace Gaem_server.Threaded;
 
-public class ReceiveTcpPacket(Server server, ConnectedPlayer connectedPlayer)
+public class ReceiveTcpPacket(Server server, Player player)
 {
     private static readonly ILog logger = LogManager.GetLogger(typeof(ReceiveTcpPacket));
 
-    private NetworkStream networkStream = connectedPlayer.tcpClient.GetStream();
+    private NetworkStream networkStream = player.tcpClient.GetStream();
     private CancellationTokenSource cancellationTokenSource = new CancellationTokenSource();
 
     public async Task run()
@@ -22,8 +22,8 @@ public class ReceiveTcpPacket(Server server, ConnectedPlayer connectedPlayer)
             while (!cancellationTokenSource.Token.IsCancellationRequested)
             {
                 byte[] receivedBytes = await ReceiveBytes(networkStream);
-                logger.Debug($"Received message from {connectedPlayer.playerName}");
-                List<Packet> packets = PacketProcessor.ProcessReceivedBytes(receivedBytes, connectedPlayer);
+                logger.Debug($"Received message from {player.playerName}");
+                List<Packet> packets = PacketProcessor.ProcessReceivedBytes(receivedBytes, player);
 
                 foreach (Packet packet in packets)
                 {
@@ -41,7 +41,7 @@ public class ReceiveTcpPacket(Server server, ConnectedPlayer connectedPlayer)
         }
         finally
         {
-            server.DisconnectPlayer(connectedPlayer.tcpClient);
+            server.DisconnectPlayer(player.tcpClient);
         }
     }
 

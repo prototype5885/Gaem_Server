@@ -10,6 +10,6 @@ internal partial class PacketContext : JsonSerializerContext
 public class Packet
 {
     public int type;
-    public ConnectedPlayer owner;
+    public Player owner;
     public string json;
 }
