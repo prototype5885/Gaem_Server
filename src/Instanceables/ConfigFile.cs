@@ -4,7 +4,7 @@ namespace Gaem_server.Instanceables;
 
 public class ConfigFile
 {
-    private static readonly ILog Logger = LogManager.GetLogger(typeof(Server));
+    private static readonly ILog Logger = LogManager.GetLogger(typeof(ConfigFile));
     
     public readonly int TcpPort;
     public readonly int TickRate;

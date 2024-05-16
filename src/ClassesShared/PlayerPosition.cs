@@ -6,10 +6,10 @@ namespace Gaem_server.ClassesShared;
 internal partial class PlayerPositionContext : JsonSerializerContext
 {
 }
-[JsonSerializable(typeof(List<PlayerPosition>))]
-internal partial class ListPlayerPositionContext : JsonSerializerContext
-{
-}
+// [JsonSerializable(typeof(List<PlayerPosition>))]
+// internal partial class ListPlayerPositionContext : JsonSerializerContext
+// {
+// }
 public class PlayerPosition
 {
     public float x;

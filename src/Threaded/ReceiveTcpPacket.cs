@@ -6,7 +6,7 @@ using log4net;
 
 namespace Gaem_server.Threaded;
 
-public class ReceiveTcpPacket(Server server, Player player)
+public class ReceiveTcpPacket(Player player)
 {
     private static readonly ILog logger = LogManager.GetLogger(typeof(ReceiveTcpPacket));
 
@@ -27,7 +27,7 @@ public class ReceiveTcpPacket(Server server, Player player)
 
                 foreach (Packet packet in packets)
                 {
-                    server.packetsToProcess.Enqueue(packet);
+                    MainC.packetsToProcess.Enqueue(packet);
                 }
             }
         }
@@ -41,7 +41,7 @@ public class ReceiveTcpPacket(Server server, Player player)
         }
         finally
         {
-            server.DisconnectPlayer(player.tcpClient);
+            MainC.DisconnectPlayer(player.tcpClient);
         }
     }
 

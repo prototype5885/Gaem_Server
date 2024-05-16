@@ -29,6 +29,10 @@ public static class PacketProcessor
             case 30:
                 jsonBytes = JsonSerializer.SerializeToUtf8Bytes(obj, ChatMessageContext.Default.ChatMessage);
                 break;
+            case 40:
+                jsonBytes = JsonSerializer.SerializeToUtf8Bytes(obj,
+                    PlayerPositionWithIDArrayContext.Default.PlayerPositionWithIDArray);
+                break;
         }
         Console.WriteLine($"Serialized json: {Encoding.UTF8.GetString(jsonBytes)}");
         // ByteProcessor.PrintByteArrayAsHex(jsonBytes);

@@ -13,7 +13,7 @@ using LoginDataContext = Gaem_server.ClassesShared.LoginDataContext;
 
 namespace Gaem_server.Threaded;
 
-public class HandleNewPlayers(Server server)
+public class HandleNewPlayers()
 {
     private static readonly ILog logger = LogManager.GetLogger(typeof(HandleNewPlayers));
 
@@ -27,9 +27,9 @@ public class HandleNewPlayers(Server server)
             {
                 // waits for a player to connect
                 logger.Debug("Waiting for a player to connect...");
-                TcpClient tcpClient = server.tcpListener.AcceptTcpClient();
+                TcpClient tcpClient = MainC.tcpListener.AcceptTcpClient();
 
-                string ipAddress = server.GetIpAddress(tcpClient);
+                string ipAddress = MainC.GetIpAddress(tcpClient);
 
                 logger.Info($"A player from ip {ipAddress} connected...");
 
@@ -50,14 +50,14 @@ public class HandleNewPlayers(Server server)
                 if (player != null)
                 {
                     logger.Debug($"Sending data of player {player.playerName} to everyone except the new player...");
-                    PlayerData playerData = server.GetDataOfPlayer(player);
-                    server.SendToEveryoneExcept(20, playerData, player);
+                    PlayerData playerData = MainC.GetDataOfPlayer(player);
+                    MainC.SendToEveryoneExcept(20, playerData, player);
                     
                     logger.Debug($"Sending every player's data to the new player {player.playerName}...");
-                    PlayerData[] playerDataArray = server.GetDataOfEveryPlayers();
-                    server.SendToOnePlayer(21, playerDataArray, player);
+                    PlayerData[] playerDataArray = MainC.GetDataOfEveryPlayers();
+                    MainC.SendToOnePlayer(21, playerDataArray, player);
                     
-                    ReceiveTcpPacket receiveTcpPacket = new ReceiveTcpPacket(server, player);
+                    ReceiveTcpPacket receiveTcpPacket = new ReceiveTcpPacket(player);
                     Task.Run(async () => await receiveTcpPacket.run());
 
                 }
@@ -87,14 +87,14 @@ public class HandleNewPlayers(Server server)
         if (!aloReceivedBytes.SequenceEqual(Encoding.UTF8.GetBytes("alo")))
         {
             logger.Error($"Improper handshake request received from {ipAddress}, aborting handshake");
-            server.DisconnectPlayer(tcpClient);
+            MainC.DisconnectPlayer(tcpClient);
             return null;
         }
 
         logger.Debug($"Handshake request received from {ipAddress}, sending public key to the player...");
 
         // sending public key to player
-        server.SendTcp(EncryptionRsa.PublicKeyToByteArray(), tcpClient);
+        MainC.SendTcp(EncryptionRsa.PublicKeyToByteArray(), tcpClient);
 
         // waiting for player to send its own public key
         logger.Debug($"Waiting now for {ipAddress} to send it's own public key...");
@@ -124,7 +124,7 @@ public class HandleNewPlayers(Server server)
         logger.Debug($"Sending a random AES key to {ipAddress}");
         byte[] aesKey = EncryptionAes.GenerateRandomKey(16);
         byte[] encryptedAesKey = EncryptionRsa.Encrypt(aesKey, clientPublicKey);
-        server.SendTcp(encryptedAesKey, tcpClient);
+        MainC.SendTcp(encryptedAesKey, tcpClient);
 
         // testing if it works
         //        logger.debug("Sending test...");
@@ -162,9 +162,9 @@ public class HandleNewPlayers(Server server)
         // find which player slot is free
         logger.Debug($"Searching a free slot for {ipAddress}...");
         newPlayer.index = -1;
-        for (int i = 0; i < server.players.Length; i++)
+        for (int i = 1; i < MainC.players.Length; i++)
         {
-            if (server.players[i] == null)
+            if (MainC.players[i] == null)
             {
                 newPlayer.index = i;
                 logger.Debug($"Found free slot at slot {newPlayer.index}");
@@ -204,7 +204,7 @@ public class HandleNewPlayers(Server server)
                 catch (Exception e) 
                 {
                     logger.Error($"Error processing data received from {ipAddress}: {e.ToString()}");
-                    server.DisconnectPlayer(tcpClient);
+                    MainC.DisconnectPlayer(tcpClient);
                     return null;
                 }
                 break;
@@ -228,7 +228,7 @@ public class HandleNewPlayers(Server server)
 
             // Checks if the chosen name is already registered
             logger.Debug($"Checking if chosen name {loginData.un} is already registered...");
-            DatabasePlayer regDatabasePlayer = server.database.SearchForPlayerInDatabase(loginData.un);
+            DatabasePlayer regDatabasePlayer = MainC.database.SearchForPlayerInDatabase(loginData.un);
 
             if (regDatabasePlayer != null)
             {
@@ -239,7 +239,7 @@ public class HandleNewPlayers(Server server)
            
             // Adds the new player to the database
             logger.Debug($"Successful registration, adding new player {loginData.un} to the database");
-            server.database.RegisterPlayer(loginData.un, loginData.pw);
+            MainC.database.RegisterPlayer(loginData.un, loginData.pw);
         }
 
         // logs the player in
@@ -247,7 +247,7 @@ public class HandleNewPlayers(Server server)
 
         // searches if player is already connected to the server
         logger.Debug($"Checking if player {loginData.un} is connected already...");
-        foreach (Player player in server.players)
+        foreach (Player player in MainC.players)
         {
             if (player == null)
                 continue;
@@ -261,7 +261,7 @@ public class HandleNewPlayers(Server server)
 
         // searches for the player in the database
         logger.Debug($"Searching for player {loginData.un} in the database...");
-        DatabasePlayer logDatabasePlayer = server.database.SearchForPlayerInDatabase(loginData.un);
+        DatabasePlayer logDatabasePlayer = MainC.database.SearchForPlayerInDatabase(loginData.un);
 
         // if player was not found in database
         if (logDatabasePlayer == null)
@@ -290,20 +290,20 @@ public class HandleNewPlayers(Server server)
         InitialData initialData = new InitialData();
         initialData.loginResultValue = 1;
         initialData.index = newPlayer.index;
-        initialData.maxPlayers = server.maxPlayers;
-        initialData.tickRate = server.tickRate;
+        initialData.maxPlayers = MainC.maxPlayers;
+        initialData.tickRate = MainC.tickRate;
 
         // reply back to the player about the authentication success
         logger.Debug($"Sending positive reply about authentication back to {newPlayer.playerName}...");
         try
         {
             byte[] bytesToSend = PacketProcessor.MakePacketForSending(1, initialData, newPlayer.aesKey);
-            server.SendTcp(bytesToSend, tcpClient);
+            MainC.SendTcp(bytesToSend, tcpClient);
         }
         catch (Exception e)
         {
             logger.Error(e.ToString());
-            server.DisconnectPlayer(tcpClient);
+            MainC.DisconnectPlayer(tcpClient);
             return null;
         }
 
@@ -312,7 +312,7 @@ public class HandleNewPlayers(Server server)
 
         // adds the new player to the list of connected players
         logger.Debug($"Adding player {newPlayer.playerName} to the list of connected players...");
-        server.players[newPlayer.index] = newPlayer;
+        MainC.players[newPlayer.index] = newPlayer;
 
         // returns success
         logger.Info($"Authentication of {ipAddress} ({newPlayer.playerName}) was success");
@@ -332,11 +332,11 @@ public class HandleNewPlayers(Server server)
             };
 
             byte[] bytesToSend = PacketProcessor.MakePacketForSending(1, initialData, aesKey);
-            server.SendTcp(bytesToSend, tcpClient);
+            MainC.SendTcp(bytesToSend, tcpClient);
 
             logger.Debug("Closing connection of the failed player in 1 second...");
             Thread.Sleep(1000);
-            server.DisconnectPlayer(tcpClient);
+            MainC.DisconnectPlayer(tcpClient);
 
             logger.Debug($"Connection with {ipAddress} has been terminated successfully");
         }
